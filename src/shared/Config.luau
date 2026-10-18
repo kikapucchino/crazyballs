@@ -1,15 +1,18 @@
 -- Public tuning only. Outcomes, decks, and hidden selections live on the server.
 return {
 	Title = "Cloudpop Commons",
-	Build = "0.2.0",
+	Build = "0.3.0",
 	DataStoreName = "CloudpopProfiles_v1",
-	IntermissionSeconds = 12,
+	IntermissionSeconds = 15,
 	DrawSeconds = 4,
 	DrawCount = 20,
 	ResultsSeconds = 10,
 	NumberPool = 60,
-	-- Deliberately unconfigured: the requested main-card rules are awaiting answers.
-	Main = { Count = 0, Grid = 5, FreeCenter = false, Patterns = {}, Confirmed = false },
+	-- Two dealt cards are confirmed. The center is numbered while free-center/pattern rules remain pending.
+	Main = { Count = 2, Grid = 5, FreeCenter = false, Patterns = {}, CardsEnabled = true, RewardsConfirmed = false,
+		-- Relative integer weights. All 20 outcomes have weight 1 => exactly 5% each.
+		MultiplierWeights = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 },
+	},
 	Rewards = { Participation = 20 }, -- Existing participation reward, not a bonus multiplier.
 	BonusBasePesos = 20,
 	Bonuses = {

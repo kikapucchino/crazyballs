@@ -71,13 +71,14 @@ test("save, release and rejoin retain the balance, cosmetics and settings", func
 	local first = store.load({ UserId = 1 })
 	first.data.pesos = 100
 	assert(Economy.purchase(first.data, Config.Catalog, "marker_berry"))
-	first.data.settings.autoMark = true
+	first.data.settings.voiceVolume = 0.3
+	first.data.settings.autoMark = true -- legacy field is deliberately discarded
 	assert(store.save(first, false))
 	store.close(first)
 	assert(db.records.player_1.lock == nil)
 	local second = store.load({ UserId = 1 })
 	assert(second.data.pesos == 40 and second.data.owned.marker_berry)
-	assert(second.data.equipped.marker == "marker_berry" and second.data.settings.autoMark)
+	assert(second.data.equipped.marker == "marker_berry" and second.data.settings.voiceVolume == 0.3 and second.data.settings.autoMark == nil)
 end)
 
 test("an expired session cannot overwrite the replacement server's save", function()

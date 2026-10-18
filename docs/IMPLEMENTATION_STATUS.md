@@ -1,8 +1,9 @@
-# Implementation status · 0.2.0
+# Implementation status · 0.3.0
 
 ## Confirmed decisions
 
 - Shared pool 1–60; exactly 20 unique draws; free cards.
+- Each player receives two main cards and one of each bonus: six entries total.
 - Main grid stays 5×5. A 25-distinct-number full card cannot finish with only 20 draws.
 - Four separate bonus cards, with exact names Coin flip, Duck hunt, Pačinki, Go CRazy.
 - Qualification counts: 3, 4, 4, and **unconfirmed** respectively.
@@ -17,7 +18,7 @@
 
 | Area | Still unspecified |
 | --- | --- |
-| Main cards | Cards per player, winning patterns, free center yes/no, reward for a completed pattern and whether more than one pattern can pay per card. |
+| Main cards | Winning patterns, free center yes/no, base reward for a completed pattern and whether more than one pattern can pay per card. Card count is confirmed as two. |
 | Coin flip | Two exact face multipliers and probabilities. 3×/20× were examples, not an accepted distribution. |
 | Duck hunt | Exact values and how many covered objects carry each value. |
 | Pačinki | Exact slot values, slot counts, and probabilities. |
@@ -30,32 +31,29 @@ The timeout/departure question is answered: automatic Duck selection; common out
 
 ## Runtime versus groundwork
 
-The active controller executes assignment → intermission → twenty draws → last call → qualification summary → participation results → reset. Eligibility updates on each draw. It can flag all three configured bonus types independently in one round; there is no single-bonus restriction. The unconfigured Go CRazy card does not qualify from an empty number list.
+The active controller executes assignment → synchronized 15-second intermission → drawing/start cue → twenty draws → last call → qualification summary → participation results → reset. The start cue occupies 1.5 seconds after countdown zero. Cards and fixed multipliers are assigned before countdown begins. Eligibility updates on each draw. It can flag all three configured bonus types independently in one round; there is no single-bonus restriction. The unconfigured Go CRazy card does not qualify from an empty number list.
 
 **No real bonus queue runs yet.** Retrigger policy, interruption timing and bonus-resolution phases depend on the requested decisions. There is no placeholder spin that pretends to award a real outcome.
 
-`GameRules` includes 5×5 card generation and validated marking for the future confirmed configuration. Production `Main.Confirmed` remains false and the panel shows a blank layout with an explanation. Pattern validation/rewards are unfinished. Old 3×3 cards, delivery objectives and Tailwind Switch were removed from the current flow because they are not the requested game.
+`GameRules` now deals two 5×5 cards with no repeated numbers inside a card. All 25 cells are currently numbered; the unanswered free-center decision is not treated as a final rule. Manual server-validated marks are active, including after a previous draw. Main pattern validation and payouts remain disabled pending center/pattern/base-reward decisions. Auto-mark was explicitly removed by the new specification; legacy saved settings and requests cannot re-enable it.
+
+Each card independently receives an integer multiplier from 1 through 20. `Config.Main.MultiplierWeights` contains 20 weights of 1: each result has probability 1/20 = 5%. To change odds, edit the corresponding nonnegative integer weights; probability is weight divided by their sum. The sum must be positive. This table is the sole distribution; spending/player behavior is never an input. Multipliers do not change mid-round and are disclosed before the first draw.
+
+`claimMainReward` provides one-time multiplication of a server-determined eligible main-card base reward. Its tests use fixture base rewards only. It is not called by the live controller while base rewards and pattern eligibility remain unconfirmed, and does not multiply participation or bonus results.
 
 `BonusRules` is a pure helper, not a live service. Its common-outcome cache and per-player receipts are scoped to a server round. Duck selection consumes a **server-owned mapping supplied by the future controller**, with automatic index selection when no answer is supplied. Mapping creation, covered-object animation, deadlines, departure settlement and persistent receipts are not integrated. Test outcome tables are fixtures only; none are production prize distributions.
 
 `ExactInteger` computes signed decimal payouts without converting huge multipliers to floating point, and formats long values for display. Its 1024-digit guard is a technical resource limit, not a small Go CRazy design cap. Overflow is rejected before output. Balance addition, schema migration and an atomic/idempotent persistent bonus ledger must be implemented with the confirmed deduction policy. The current version-1 DataStore schema is intentionally unchanged; its normalizer caps numeric Pesos at 1,000,000,000. Do not feed huge or signed bonus amounts into that schema.
 
-The server still pays the previous build's 20-Pesos participation reward once after a participating player has seen a draw. Opening a card panel or equipping the holder establishes participation; changing volume settings alone does not. Leaving before the first ball pays nothing. This is not a new pattern reward or bonus payout.
+The server still pays the previous build's 20-Pesos participation reward once after a participating player has seen a draw. A successful manual mark, intentionally opening cards, or equipping the holder establishes participation; changing volume settings alone does not. Merely receiving the default visible panel does not establish participation. Leaving before the first ball pays nothing. This is not a new pattern reward or bonus payout.
 
-## Audio asset slots
+## Audio and presenter
 
-All IDs in `Config.Audio` are deliberately empty. Use original audio you own or suitably licensed audio permitted in this experience; set values to `rbxassetid://<actual ID>`. Verify asset access in the published private test experience.
+See [AUDIO_SETUP.md](AUDIO_SETUP.md) for all 68 required human-voice recordings, music/effect slots, exact manifest fields, timing limits, consent/licensing and asset-permission setup. The stage character and spoken-announcement/subtitle controller are implemented; recordings are not. This build has working subtitles and intentionally silent asset slots.
 
-| Slot | Intended identity/use |
-| --- | --- |
-| `Music.lobby` | Gentle blue-sky rhythm, relaxed social ambience |
-| `Music.coin` | Bright, compact syncopated melody for the flip/reveal |
-| `Music.duck` | Playful plucked rhythm for reveal, cover and shuffle |
-| `Music.pacinki` | Cascading mallet melody following the descent |
-| `Music.crazy` | Layered upbeat rhythm for pointer choice and wheel reveal |
-| `SFX.draw`, `mark`, `qualify`, `reveal`, `result` | Short readable feedback cues |
+One music Sound loops the current track; a sequential transition swaps it without stacking tracks. A separate voice Sound consumes the server's announcement IDs, expires outdated cues and temporarily reduces music to 22% of the selected music volume. Voice mute prevents ducking. Failed/unloaded voice assets use subtitles, never delayed speech for an old ball. Music, voice and effect volumes/mutes are separate and saved. Bonus-name cues and soundtrack slots are prepared but are not triggered by individual qualification; real shared bonus-start integration awaits bonus execution.
 
-These are briefs, not completed compositions. The runtime calls lobby/draw/mark/qualification/result slots. Bonus music and reveal slots await bonus-presentation integration. Sequential music fading uses one Sound so two bonus tracks cannot overlap. SFX uses at most four reusable Sounds. Music/SFX volume and reduced motion are saved separately.
+The enclosed three-room model, presenter and café are built with original primitives. Layout/geometry tests cover floors, ceilings, perimeter glazing, collision-clear routes, desktop tray arrangement and mobile target sizes. Actual rendered visual quality, sound, avatar movement and mobile control overlap require Studio playtesting.
 
 ## Review limits
 

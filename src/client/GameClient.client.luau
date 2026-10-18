@@ -14,7 +14,7 @@ local function initialize()
 	local shared = waitFor(ReplicatedStorage, "Cloudpop")
 	local Config = require(waitFor(shared, "Config"))
 	local Economy = require(waitFor(shared, "Economy"))
-	local audio = require(waitFor(gui, "AudioController")).new(Config.Audio)
+	local audio
 	local effects = require(waitFor(gui, "WorldEffects")).new()
 	local remotes = waitFor(shared, "Remotes")
 	local action, stateEvent = waitFor(remotes, "Action"), waitFor(remotes, "State")
@@ -50,234 +50,199 @@ local function initialize()
 		object.Activated:Connect(callback)
 		return object
 	end
-	local state, page, cardIndex, isOpen = nil, "Main", 1, false
+	local touch = game:GetService("UserInputService").TouchEnabled
+	local layout = require(waitFor(shared, "CardLayout"))
+	local manifest = require(waitFor(shared, "AudioManifest"))
+	-- Audio receives only the consenting-human recording manifest; there is no speech synthesis.
+	audio = require(waitFor(gui, "AudioController")).new(Config.Audio, manifest)
+	local state, panelOpen, auxiliary = nil, not touch, nil
 	local previousRound, previousCount, previousQualified = nil, 0, {}
 	local function request(name, a, b, c)
 		action:FireServer(name, a, b, c, if state then state.roundId else 0)
 	end
-	local hud = frame("HUD", gui, UDim2.fromOffset(330, 116), UDim2.new(0.5, 0, 0, 10))
-	hud.AnchorPoint = Vector2.new(0.5, 0)
-	local ball = label("CurrentBall", hud, "—", UDim2.fromOffset(62, 62), UDim2.fromOffset(12, 8), 34)
-	ball.TextXAlignment, ball.Font = Enum.TextXAlignment.Center, Enum.Font.GothamBold
-	local counter = label("DrawCount", hud, "0 / 20", UDim2.new(1, -94, 0, 23), UDim2.fromOffset(86, 10), 18)
-	local balance = label("Pesos", hud, "0 Pesos", UDim2.new(1, -94, 0, 22), UDim2.fromOffset(86, 34), 14)
-	local history = label("RecentBalls", hud, "Waiting for the first ball", UDim2.new(1, -24, 0, 20), UDim2.fromOffset(12, 70), 13)
-	local phaseText = label("Phase", hud, "Connecting…", UDim2.new(1, -24, 0, 18), UDim2.fromOffset(12, 92), 12)
-	phaseText.TextColor3 = colors.muted
-	local toast = label("Notice", gui, "", UDim2.fromOffset(330, 44), UDim2.new(1, -12, 0, 134), 14)
-	toast.AnchorPoint, toast.BackgroundColor3, toast.BackgroundTransparency = Vector2.new(1, 0), colors.navy, 0.1
-	toast.Visible = false
+	local hud = frame("HUD", gui, UDim2.fromOffset(330,90), UDim2.new(0.5,0,0,8))
+	hud.AnchorPoint = Vector2.new(0.5,0)
+	local ball = label("CurrentBall",hud,"—",UDim2.fromOffset(64,60),UDim2.fromOffset(8,0),32)
+	ball.TextXAlignment=Enum.TextXAlignment.Center
+	local counter = label("DrawCount",hud,"0 / 20",UDim2.fromOffset(114,24),UDim2.fromOffset(82,6),18)
+	local balance = label("Pesos",hud,"0 Pesos",UDim2.fromOffset(220,22),UDim2.fromOffset(82,30),14)
+	local history = label("RecentBalls",hud,"Fresh pool · 1–60",UDim2.new(1,-20,0,18),UDim2.fromOffset(10,64),12)
+	local phaseText = label("Phase",hud,"Connecting…",UDim2.fromOffset(126,24),UDim2.fromOffset(195,6),14)
+	phaseText.TextXAlignment=Enum.TextXAlignment.Right
+	local subtitles=label("PresenterSubtitle",gui,"",UDim2.fromOffset(420,38),UDim2.new(0.5,0,0,104),15)
+	subtitles.AnchorPoint,subtitles.BackgroundColor3,subtitles.BackgroundTransparency=Vector2.new(0.5,0),colors.navy,0.1
+	subtitles.TextXAlignment,subtitles.Visible=Enum.TextXAlignment.Center,false
+	round(subtitles)
+	local toast=label("Notice",gui,"",UDim2.fromOffset(330,40),UDim2.new(0.5,0,0,150),13)
+	toast.AnchorPoint,toast.BackgroundColor3,toast.BackgroundTransparency=Vector2.new(0.5,0),colors.navy,0.1
+	toast.Visible=false
 	round(toast)
-	local noticeUntil = 0
+	local noticeUntil=0
 	local function notify(text)
-		toast.Text, toast.Visible = text, true
-		noticeUntil = workspace:GetServerTimeNow() + 6
+		toast.Text,toast.Visible=text,true
+		noticeUntil=workspace:GetServerTimeNow()+5
 	end
-	local panel = frame("CardPanel", gui, UDim2.fromOffset(330, 438), UDim2.new(1, -12, 0, 144))
-	panel.AnchorPoint, panel.Visible = Vector2.new(1, 0), false
-	label("PanelTitle", panel, "YOUR CARDS", UDim2.new(1, -68, 0, 36), UDim2.fromOffset(12, 4), 16)
-	local tabs = {}
-	local body = make("ScrollingFrame", "PanelBody", panel, { Position = UDim2.fromOffset(10, 96), Size = UDim2.new(1, -20, 1, -106),
-		BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4, ScrollingDirection = Enum.ScrollingDirection.Y,
-		CanvasSize = UDim2.fromOffset(0, 360) })
-	local pages = {}
-	for _, name in ipairs({ "Main", "Bonuses", "Looks", "Settings" }) do
-		pages[name] = make("Frame", name, body, { Size = UDim2.new(1, -6, 0, 500), BackgroundTransparency = 1, Visible = name == page })
-	end
-	local render, resize
-	local function open(nextPage)
-		page = nextPage or page
-		isOpen, panel.Visible = true, true
+	local cardPanel=require(waitFor(gui,"CardPanel")).new(gui,{frame=frame,label=label,button=button,make=make,colors=colors},Config,layout,request)
+	local aux=frame("AuxiliaryPanel",gui,UDim2.fromOffset(350,370),UDim2.new(0.5,0,1,-80))
+	aux.AnchorPoint,aux.Visible=Vector2.new(0.5,1),false
+	local auxTitle=label("Title",aux,"SETTINGS",UDim2.new(1,-70,0,44),UDim2.fromOffset(12,0),16)
+	local body=make("ScrollingFrame","Body",aux,{Size=UDim2.new(1,-20,1,-54),Position=UDim2.fromOffset(10,46),CanvasSize=UDim2.fromOffset(0,420),
+		ScrollBarThickness=4,BackgroundTransparency=1,BorderSizePixel=0,ScrollingDirection=Enum.ScrollingDirection.Y})
+	local settings=make("Frame","Settings",body,{Size=UDim2.new(1,-6,0,420),BackgroundTransparency=1})
+	local looks=make("Frame","Looks",body,{Size=UDim2.new(1,-6,0,340),BackgroundTransparency=1})
+	local resize,render
+	local compactPresentation=false
+	button("Close",aux,"×",UDim2.fromOffset(44,40),UDim2.new(1,-50,0,2),function() auxiliary=nil; resize() end)
+	local function openCards()
+		panelOpen,auxiliary=true,nil
 		request("Participate")
-		if render then render() end
+		resize()
 	end
-	button("Close", panel, "×", UDim2.fromOffset(44, 36), UDim2.new(1, -50, 0, 4), function() isOpen, panel.Visible = false, false; if resize then resize() end end)
-	for index, name in ipairs({ "Main", "Bonuses", "Looks", "Settings" }) do
-		tabs[name] = button(name .. "Tab", panel, name, UDim2.new(0.25, -6, 0, 44), UDim2.new((index - 1) / 4, 4, 0, 44), function() open(name) end)
-	end
-	button("CardsButton", gui, "Cards", UDim2.fromOffset(106, 44), UDim2.new(0.5, 4, 1, -126), function()
-		if isOpen then isOpen, panel.Visible = false, false; if resize then resize() end else open() end
+	local cardsButton=button("CardsButton",gui,"Cards",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function()
+		if panelOpen and not auxiliary then panelOpen=false; resize() else openCards() end
 	end)
-	button("SettingsButton", gui, "Settings", UDim2.fromOffset(88, 44), UDim2.new(0.5, -94, 1, -126), function() open("Settings") end)
-	local main = pages.Main
-	local mainHint = label("MainHint", main, "", UDim2.new(1, 0, 0, 48), UDim2.fromOffset(0, 0), 13)
-	local card = frame("MainCard", main, UDim2.new(1, 0, 0, 280), UDim2.fromOffset(0, 52))
-	local cells = {}
-	for index = 1, 25 do
-		cells[index] = button("Cell" .. index, card, "—", UDim2.new(0.2, -5, 0.2, -5),
-			UDim2.new((index - 1) % 5 / 5, 3, math.floor((index - 1) / 5) / 5, 3), function() request("Mark", cardIndex, index) end)
-	end
-	local nextCard = button("NextCard", main, "Next card", UDim2.new(1, 0, 0, 44), UDim2.fromOffset(0, 340), function()
-		if state and #state.cards > 0 then cardIndex = cardIndex % #state.cards + 1; render() end
+	local looksButton=button("LooksButton",gui,"Looks",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function() auxiliary="Looks"; resize() end)
+	local settingsButton=button("SettingsButton",gui,"Settings",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function() auxiliary="Settings"; resize() end)
+	local reduced=button("reducedMotion",settings,"Reduced motion · Off",UDim2.new(1,0,0,44),UDim2.fromOffset(0,0),function()
+		if state then request("Setting","reducedMotion",not state.settings.reducedMotion) end
 	end)
-	local bonusRows = {}
-	for index, definition in ipairs(Config.Bonuses) do
-		local row = frame(definition.id, pages.Bonuses, UDim2.new(1, 0, 0, 86), UDim2.fromOffset(0, (index - 1) * 94))
-		local title = label("Title", row, definition.name, UDim2.new(1, -16, 0, 22), UDim2.fromOffset(8, 6), 15)
-		local numbers = label("Numbers", row, "", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 28), 18)
-		local progress = label("Progress", row, "", UDim2.new(1, -16, 0, 22), UDim2.fromOffset(8, 57), 12)
-		bonusRows[definition.id] = { title = title, numbers = numbers, progress = progress }
-	end
-	label("BonusPending", pages.Bonuses, "Bonus payouts await confirmed rules. Go CRazy: 64 segments and 3 prize pointers.", UDim2.new(1, 0, 0, 58), UDim2.fromOffset(0, 376), 13)
-	local cosmeticButtons = {}
-	for index, item in ipairs(Config.Catalog) do
-		cosmeticButtons[item.id] = button(item.id, pages.Looks, item.name, UDim2.new(1, 0, 0, 48), UDim2.fromOffset(0, (index - 1) * 56), function() request("Cosmetic", item.id) end)
-	end
-	local settingButtons = {}
-	for index, entry in ipairs({ { "autoMark", "Automatic marking" }, { "reducedMotion", "Reduced motion" } }) do
-		local key, title = entry[1], entry[2]
-		settingButtons[key] = button(key, pages.Settings, title, UDim2.new(1, 0, 0, 44), UDim2.fromOffset(0, (index - 1) * 52), function()
-			if state then request("Setting", key, not state.settings[key]) end
-		end)
-	end
-	local volumeLabels = {}
-	for index, entry in ipairs({ { "musicVolume", "Music" }, { "sfxVolume", "Sound effects" } }) do
-		local key, title, y = entry[1], entry[2], 108 + (index - 1) * 56
-		volumeLabels[key] = label(key, pages.Settings, title, UDim2.new(1, -104, 0, 44), UDim2.fromOffset(0, y), 14)
-		for _, delta in ipairs({ -0.1, 0.1 }) do
-			button(key .. tostring(delta), pages.Settings, if delta < 0 then "−" else "+", UDim2.fromOffset(44, 44), UDim2.new(1, if delta < 0 then -96 else -46, 0, y), function()
-				if state then request("Setting", key, math.clamp(math.floor(((state.settings[key] or 0) + delta) * 10 + 0.5) / 10, 0, 1)) end
+	local volumes,mutes,previousVolumes={},{},{}
+	for index,entry in ipairs({{"musicVolume","Music"},{"voiceVolume","Voice"},{"sfxVolume","Effects"}}) do
+		local key,title,y=entry[1],entry[2],52+(index-1)*62
+		volumes[key]=label(key,settings,title,UDim2.new(1,-172,0,44),UDim2.fromOffset(0,y),14)
+		for _,delta in ipairs({-0.1,0.1}) do
+			button(key..tostring(delta),settings,if delta<0 then "−" else "+",UDim2.fromOffset(44,44),UDim2.new(1,if delta<0 then -162 else -112,0,y),function()
+				if state then request("Setting",key,math.clamp(math.floor(((state.settings[key] or 0)+delta)*10+0.5)/10,0,1)) end
 			end)
 		end
+		mutes[key]=button(key.."Mute",settings,"Mute",UDim2.fromOffset(62,44),UDim2.new(1,-62,0,y),function()
+			if not state then return end
+			local current=state.settings[key] or 0
+			if current>0 then previousVolumes[key]=current; request("Setting",key,0)
+			else request("Setting",key,previousVolumes[key] or 0.5) end
+		end)
 	end
-	local saveLabel = label("SaveStatus", pages.Settings, "", UDim2.new(1, 0, 0, 54), UDim2.fromOffset(0, 224), 12)
-	label("Credits", pages.Settings, "Created by Kikapucchino", UDim2.new(1, 0, 0, 30), UDim2.fromOffset(0, 284), 13)
-	label("AudioSlots", pages.Settings, "Soundtrack slots are awaiting licensed audio.", UDim2.new(1, 0, 0, 36), UDim2.fromOffset(0, 319), 12)
-	local function cosmeticColor(category, fallback)
-		local item = state and Economy.find(Config.Catalog, state.equipped[category])
+	local saveLabel=label("SaveStatus",settings,"",UDim2.new(1,0,0,56),UDim2.fromOffset(0,245),12)
+	label("Credits",settings,"Created by Kikapucchino",UDim2.new(1,0,0,28),UDim2.fromOffset(0,308),13)
+	label("AudioSlots",settings,"Human voice and music recordings are awaiting licensed audio.",UDim2.new(1,0,0,54),UDim2.fromOffset(0,342),12)
+	local cosmeticButtons={}
+	for index,item in ipairs(Config.Catalog) do
+		cosmeticButtons[item.id]=button(item.id,looks,item.name,UDim2.new(1,0,0,48),UDim2.fromOffset(0,(index-1)*56),function() request("Cosmetic",item.id) end)
+	end
+	local function cosmeticColor(category,fallback)
+		local item=state and Economy.find(Config.Catalog,state.equipped[category])
 		return if item then Color3.fromRGB(table.unpack(item.color)) else fallback
 	end
-	render = function()
-		for name, view in pairs(pages) do
-			view.Visible = name == page
-			tabs[name].BackgroundColor3 = if name == page then colors.blue else colors.navy
-		end
-		local heights = { Main = 394, Bonuses = 444, Looks = 340, Settings = 366 }
-		body.CanvasSize = UDim2.fromOffset(0, heights[page])
-		if resize then resize() end
+	resize=function()
+		local viewport=gui.AbsoluteSize
+		local geometry=cardPanel:resize(viewport.X,viewport.Y,touch)
+		cardPanel.root.Visible=panelOpen and auxiliary==nil
+		aux.Visible=auxiliary~=nil
+		settings.Visible,looks.Visible=auxiliary=="Settings",auxiliary=="Looks"
+		auxTitle.Text=if auxiliary then string.upper(auxiliary) else ""
+		aux.Size=UDim2.fromOffset(math.min(350,geometry.width),geometry.height)
+		aux.Position=UDim2.new(0.5,0,1,-geometry.footer)
+		compactPresentation=(cardPanel.root.Visible or aux.Visible) and viewport.Y-geometry.footer-geometry.height<235
+		hud.Visible=not compactPresentation
+		subtitles.Position=UDim2.new(0.5,0,0,if compactPresentation then 8 else 104)
+		body.CanvasSize=UDim2.fromOffset(0,if auxiliary=="Looks" then 340 else 408)
+		local bottom=geometry.footer+(if cardPanel.root.Visible or aux.Visible then geometry.height+48 else 48)
+		for index,item in ipairs({cardsButton,looksButton,settingsButton}) do item.Position=UDim2.new(0.5,-138+(index-1)*94,1,-bottom) end
+		hud.Size=UDim2.fromOffset(math.min(330,viewport.X-20),90)
+		subtitles.Size=UDim2.fromOffset(math.min(420,viewport.X-24),38)
+	end
+	render=function()
 		if not state then return end
-		ball.Text = tostring(state.history[#state.history] or "—")
-		counter.Text, balance.Text = #state.history .. " / " .. state.drawCount, tostring(state.pesos) .. " Pesos"
-		local recent = {}
-		for index = math.max(1, #state.history - 5), #state.history do table.insert(recent, tostring(state.history[index])) end
-		history.Text = if #recent > 0 then "Recent  ·  " .. table.concat(recent, "  ·  ") else "Fresh pool · 1–60"
-		cardIndex = math.min(cardIndex, math.max(1, #state.cards))
-		local data = state.cards[cardIndex]
-		mainHint.Text = if state.mainPending then "5×5 cards · count, patterns and free center await confirmation." elseif not data then "Next round: your free cards arrive together." else "Card " .. cardIndex .. " / " .. #state.cards .. " · tap matching numbers"
-		card.BackgroundColor3 = cosmeticColor("card", colors.ice)
-		for index, cell in ipairs(cells) do
-			local entry = data and data.cells[index]
-			cell.Text = if entry then (if entry.number == 0 then "FREE" else (if entry.marked then "✓" else "") .. tostring(entry.number)) else "—"
-			cell.BackgroundColor3 = if entry and entry.marked then cosmeticColor("marker", colors.cyan) elseif entry and entry.available then colors.cyan else colors.blue
-			cell.TextColor3 = if entry and (entry.marked or entry.available) then colors.navy else colors.ice
-			cell.Active = entry ~= nil and entry.available and not entry.marked
+		ball.Text=tostring(state.history[#state.history] or "—")
+		counter.Text,balance.Text=#state.history.." / "..state.drawCount,tostring(state.pesos).." Pesos"
+		local recent={}
+		for index=math.max(1,#state.history-5),#state.history do table.insert(recent,tostring(state.history[index])) end
+		history.Text=if #recent>0 then "Recent · "..table.concat(recent," · ") else "Fresh pool · 1–60"
+		cardPanel:render(state,cosmeticColor("card",colors.ice),cosmeticColor("marker",colors.cyan))
+		reduced.Text="Reduced motion · "..(if state.settings.reducedMotion then "On" else "Off")
+		for key,view in pairs(volumes) do
+			local title=if key=="musicVolume" then "Music" elseif key=="voiceVolume" then "Voice" else "Effects"
+			local value=state.settings[key] or 0
+			view.Text=title.." "..math.floor(value*100+0.5).."%"
+			mutes[key].Text=if value>0 then "Mute" else "Unmute"
 		end
-		nextCard.Visible = #state.cards > 1
-		for _, bonus in ipairs(state.bonuses) do
-			local row, numbers = bonusRows[bonus.id], {}
-			for _, entry in ipairs(bonus.cells) do table.insert(numbers, (if entry.marked then "✓" else "") .. entry.number) end
-			row.numbers.Text = if #numbers > 0 then table.concat(numbers, "   ") else "Awaiting card rules"
-			row.progress.Text = if bonus.qualified then "QUALIFIED · result rules pending" elseif bonus.target == 0 then "Qualification count not set" elseif #bonus.cells == 0 then "Joining next round" else bonus.progress .. " / " .. bonus.target .. " matched"
-			row.title.TextColor3 = if bonus.qualified then colors.cyan else colors.ice
+		saveLabel.Text=(state.saveStatus or "")..(if state.practice then "\nStudio practice · progress is temporary" else "")
+		for _,item in ipairs(Config.Catalog) do
+			local suffix=if state.equipped[item.category]==item.id then "Equipped" elseif state.owned[item.id] then "Equip" else item.price.." Pesos"
+			cosmeticButtons[item.id].Text=item.name.." · "..suffix
 		end
-		for _, item in ipairs(Config.Catalog) do
-			local suffix = if state.equipped[item.category] == item.id then "Equipped" elseif state.owned[item.id] then "Equip" else item.price .. " Pesos"
-			cosmeticButtons[item.id].Text = item.name .. " · " .. suffix
-		end
-		settingButtons.autoMark.Text = "Automatic marking · " .. (if state.settings.autoMark then "On" else "Off")
-		settingButtons.reducedMotion.Text = "Reduced motion · " .. (if state.settings.reducedMotion then "On" else "Off")
-		volumeLabels.musicVolume.Text = "Music  " .. math.floor((state.settings.musicVolume or 0.5) * 100 + 0.5) .. "%"
-		volumeLabels.sfxVolume.Text = "Sound effects  " .. math.floor((state.settings.sfxVolume or 0.7) * 100 + 0.5) .. "%"
-		saveLabel.Text = (state.saveStatus or "") .. (if state.practice then "\nStudio practice · progress is temporary" else "")
 	end
 	stateEvent.OnClientEvent:Connect(function(snapshot)
-		if previousRound ~= snapshot.roundId then previousCount, previousQualified = 0, {} end
-		if #snapshot.history > previousCount then audio:play("draw") end
-		for _, bonus in ipairs(snapshot.bonuses) do
+		if previousRound~=snapshot.roundId then previousCount,previousQualified=0,{} end
+		if #snapshot.history>previousCount then audio:play("draw") end
+		for _,bonus in ipairs(snapshot.bonuses) do
 			if bonus.qualified and not previousQualified[bonus.id] then
-				notify(bonus.name .. " qualified · payout rules pending")
+				notify(bonus.name.." qualified · payout rules pending")
 				audio:play("qualify")
-				previousQualified[bonus.id] = true
+				previousQualified[bonus.id]=true
 			end
 		end
-		if snapshot.phase == "Results" and (not state or state.phase ~= "Results") and snapshot.summary then
-			notify("Round complete · +" .. snapshot.summary.total .. " Pesos")
+		if snapshot.phase=="Results" and (not state or state.phase~="Results") and snapshot.summary then
+			notify("Round complete · +"..snapshot.summary.total.." Pesos")
 			audio:play("result")
 		end
-		if state and state.roundId == snapshot.roundId then
-			local marked = false
-			for index, current in ipairs(snapshot.cards) do
-				local old = state.cards[index]
-				for cellIndex, cell in ipairs(current.cells) do
-					if old and cell.marked and not old.cells[cellIndex].marked then marked = true end
+		if state and state.roundId==snapshot.roundId then
+			local marked=false
+			for index,current in ipairs(snapshot.cards) do
+				local old=state.cards[index]
+				for cellIndex,cell in ipairs(current.cells) do
+					if old and old.cells[cellIndex] and cell.marked and not old.cells[cellIndex].marked then marked=true end
 				end
 			end
 			if marked then audio:play("mark") end
 		end
-		if status then status.Visible = false end
-		previousRound, previousCount, state = snapshot.roundId, #snapshot.history, snapshot
+		previousRound,previousCount,state=snapshot.roundId,#snapshot.history,snapshot
 		audio:setVolumes(state.settings)
-		audio:setTrack("lobby")
+		audio:setTrack(state.activeBonus or "lobby")
+		-- The same authoritative snapshot reveals the ball and queues its matching voice/subtitle.
+		audio:announce(state.announcement,workspace:GetServerTimeNow())
 		effects:update(state)
 		if state.notice then notify(state.notice) end
+		if status then status.Visible=false end
 		render()
 	end)
-	local player = Players.LocalPlayer
+	local player=Players.LocalPlayer
 	local function bindCharacter(character)
-		-- A single Character.ChildAdded subscription per character; Roblox destroys it on respawn.
-		character.ChildAdded:Connect(function(child) if child:IsA("Tool") and child.Name == "Cards" then open("Main") end end)
-		if character:FindFirstChild("Cards") then open("Main") end
+		character.ChildAdded:Connect(function(child) if child:IsA("Tool") and child.Name=="Cards" then openCards() end end)
+		if character:FindFirstChild("Cards") then openCards() end
 	end
 	player.CharacterAdded:Connect(bindCharacter)
 	if player.Character then bindCharacter(player.Character) end
-	resize = function()
-		local viewport = gui.AbsoluteSize
-		local width = math.min(330, math.max(240, viewport.X - 24))
-		hud.Size, toast.Size = UDim2.fromOffset(width, 116), UDim2.fromOffset(width, 44)
-		panel.Size = UDim2.fromOffset(width, math.max(100, math.min(510, viewport.Y - 294)))
-		if viewport.Y < 480 then
-			panel.Position = UDim2.new(0.5, width / 2, 0, 8)
-			panel.Size = UDim2.fromOffset(width, math.max(130, viewport.Y - 146))
-			hud.Visible = not isOpen
-		else
-			panel.Position, hud.Visible = UDim2.new(1, -12, 0, 144), true
-		end
-		card.Size = UDim2.new(1, 0, 0, width - 26)
-		nextCard.Position = UDim2.fromOffset(0, width + 34)
-	end
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(resize)
-	task.defer(resize)
+	resize()
 	RunService.RenderStepped:Connect(function()
+		local now=workspace:GetServerTimeNow()
 		if state then
-			local seconds = math.max(0, math.ceil(state.deadline - workspace:GetServerTimeNow()))
-			phaseText.Text = state.phase .. " · " .. seconds .. "s · " .. state.players .. " here"
+			local seconds=math.max(0,math.ceil(state.deadline-now))
+			if state.phase=="Intermission" then cardPanel:setStatus("Starts in "..seconds.."s") end
+			phaseText.Text=if state.phase=="Intermission" then "Starts in "..seconds elseif state.phase=="Drawing" then "DRAWING" elseif state.phase=="Results" then "RESULTS · "..seconds elseif state.phase=="Bonus" then "BONUS" else state.phase
 		end
-		if toast.Visible and workspace:GetServerTimeNow() >= noticeUntil then toast.Visible = false end
+		local caption=audio:update(now)
+		local noticeActive=now<noticeUntil
+		if compactPresentation and caption=="" and noticeActive then caption=toast.Text end
+		subtitles.Text,subtitles.Visible=caption,caption~=""
+		toast.Visible=noticeActive and not compactPresentation
 	end)
-	render()
 	request("Sync")
-	if status then status.Visible = false end
-	-- A lost initial request must not leave the HUD waiting forever.
+	if status then status.Visible=false end
 	task.spawn(function()
-		local attempts = 0
+		local attempts=0
 		while not state do
 			task.wait(3)
 			if not state then
-				request("Sync")
-				attempts += 1
-				if attempts >= 5 and status then
-					status.Text = "Waiting for the server. Check Studio Output for a server startup or profile-load error."
-					status.Visible = true
-				end
+				request("Sync"); attempts+=1
+				if attempts>=5 and status then status.Text="Waiting for the server. Check Studio Output for a startup or save-load error."; status.Visible=true end
 			end
 		end
 	end)
 end
-local ok, problem = xpcall(initialize, debug.traceback)
+local ok,problem=xpcall(initialize,debug.traceback)
 if not ok then
-	warn("Cloudpop client startup: " .. tostring(problem))
-	if status then
-		status.Text = "Cloudpop couldn't finish opening.\n" .. tostring(problem):match("[^\n]+")
-		status.Visible = true
-	end
+	warn("Cloudpop client startup: "..tostring(problem))
+	if status then status.Text="Cloudpop couldn't finish opening.\n"..tostring(problem):match("[^\n]+"); status.Visible=true end
 end

@@ -14,7 +14,7 @@ function Mock.instances()
 	local all, methods = {}, {}
 	local function new(class, name, parent)
 		local children, properties = {}, { ClassName = class, Name = name or class, AbsoluteSize = { X = 420, Y = 800 }, Visible = true,
-			Activated = Mock.signal(), OnClientEvent = Mock.signal(), OnServerEvent = Mock.signal(), ChildAdded = Mock.signal(), CharacterAdded = Mock.signal() }
+			Ended = Mock.signal(), Activated = Mock.signal(), OnClientEvent = Mock.signal(), OnServerEvent = Mock.signal(), ChildAdded = Mock.signal(), CharacterAdded = Mock.signal() }
 		local object = setmetatable({}, {
 			__index = function(_, key)
 				if key == "children" then return children end
@@ -57,12 +57,13 @@ function Mock.instances()
 end
 function Mock.globals()
 	local function tuple(...) return { ... } end
+	local function vector(x,y,z) return {X=x,Y=y,Z=z,x,y,z} end
 	local enum = setmetatable({}, { __index = function(self, key)
 		local group = setmetatable({}, { __index = function(_, value) return key .. "." .. value end })
 		rawset(self, key, group)
 		return group
 	end })
-	return { Enum = enum, Vector3 = { new = tuple }, Vector2 = { new = tuple }, Color3 = { fromRGB = tuple },
+	return { Enum = enum, Vector3 = { new = vector }, Vector2 = { new = vector }, Color3 = { fromRGB = tuple },
 		UDim = { new = tuple }, UDim2 = { new = tuple, fromOffset = tuple, fromScale = tuple }, TweenInfo = { new = tuple } }
 end
 return Mock

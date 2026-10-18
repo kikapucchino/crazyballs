@@ -6,8 +6,6 @@ local Rules = require("../src/shared/GameRules")
 local Economy = require("../src/shared/Economy")
 local Mock = require("./mock")
 local Config = require("../src/shared/Config")
-Config.IntermissionSeconds = 2
-Config.DrawSeconds = 0.2
 
 Config.ResultsSeconds = 1
 math.randomseed(118)
@@ -62,7 +60,7 @@ local function signal()
 end
 
 local snapshots, playersList, savedProfiles = {}, {}, {}
-local shared = { Config = "Config", GameRules = "Rules", Economy = "Economy" }
+local shared = { Config = "Config", GameRules = "Rules", Economy = "Economy", AudioManifest = "Manifest" }
 local players = { PlayerAdded = signal(), PlayerRemoving = signal() }
 function players:GetPlayers() return table.clone(playersList) end
 local function player(id)
@@ -84,7 +82,7 @@ end
 function profileStore.writable(profile) return profile and not profile.closing end
 function profileStore.save() return true end
 function profileStore.close(profile) profile.closing = true end
-local modules = { Config = Config, Rules = Rules, Economy = Economy, ProfileStore = profileStore, CardHolder = { give = function() end } }
+local modules = { Manifest = require("../src/shared/AudioManifest"), Config = Config, Rules = Rules, Economy = Economy, ProfileStore = profileStore, CardHolder = { give = function() end } }
 local services = { Players = players, ReplicatedStorage = { WaitForChild = function() return shared end }, Lighting = {} }
 local shutdown
 local gameMock = {
@@ -104,7 +102,7 @@ local workspaceMock = setmetatable({
 	end,
 })
 local globals = Mock.globals()
-modules.Workshop = loadWorkshop(gameMock, workspaceMock, instance, globals.Vector3, globals.Color3, globals.Enum, globals.Vector2, globals.UDim2)
+modules.Workshop = loadWorkshop(gameMock, workspaceMock, instance, globals.Vector3, globals.Color3, globals.Enum, globals.Vector2, globals.UDim2, function() return require("../src/server/LobbyPlan") end, {Parent={LobbyPlan="LobbyPlan"}})
 taskMock.spawn(function()
 	runServer(gameMock, workspaceMock, taskMock, instance,
 		{ new = function() return { NextInteger = function(_, low, high) return math.random(low, high) end } end },
@@ -116,7 +114,7 @@ local function request(target, name, a, b, c, roundId)
 	advance(0.001)
 end
 local function untilPhase(name)
-	local timeout = scheduler.now + 30
+	local timeout = scheduler.now + 180
 	while snapshots[ada].phase ~= name and scheduler.now < timeout do advance(0.05) end
 	assert(snapshots[ada].phase == name, "phase timeout: " .. name)
 end
@@ -124,7 +122,15 @@ advance(1.1)
 check(workspaceMock.CloudpopWorkshop and workspaceMock.CloudpopWorkshop.WelcomeMat
 	and shared.Remotes and shared.Remotes.Action and shared.Remotes.State,
 	"real workshop initialization completes and the server publishes both remotes")
-check(#snapshots[ada].cards == 0 and snapshots[ada].mainPending, "unconfirmed main rules do not silently deal legacy 3x3 cards")
+check(#snapshots[ada].cards == 2 and #snapshots[ada].cards[1].cells == 25 and snapshots[ada].mainPending, "two 5x5 cards deal before drawing while unconfirmed main rewards stay disabled")
+check(snapshots[ada].deadline == snapshots[ben].deadline and snapshots[ada].deadline - 1 == 15,
+	"both players share the same server-authored fifteen-second countdown")
+local multipliers = { snapshots[ada].cards[1].multiplier, snapshots[ada].cards[2].multiplier }
+check(multipliers[1]>=1 and multipliers[1]<=20 and multipliers[2]>=1 and multipliers[2]<=20, "both cards show bounded multipliers before the first ball")
+request(ada,"Mark",1,1)
+check(not snapshots[ada].cards[1].cells[1].marked,"manual marks cannot mark uncalled numbers")
+request(ada,"Setting","autoMark",true)
+check(snapshots[ada].settings.autoMark == nil,"legacy auto-mark requests are ignored")
 check(#snapshots[ada].bonuses == 4 and #snapshots[ada].bonuses[1].cells == 3 and #snapshots[ada].bonuses[2].cells == 4,
 	"every player gets separate 3/4/4 bonus cards and an explicit pending wheel card")
 check(snapshots[ada].deck == nil and #snapshots[ada].history == 0, "snapshots do not expose future draws or hidden mappings")
@@ -142,7 +148,10 @@ for index, entry in ipairs(playersList) do if entry == early then table.remove(p
 advance(0.01)
 check(savedProfiles[early].data.pesos == 0, "leaving before the first draw cannot farm participation")
 untilPhase("Drawing")
-check(snapshots[ada].history[1] == snapshots[ben].history[1], "clients see the same first draw")
+check(#snapshots[ada].history == 0 and snapshots[ada].announcement.key == "start", "at countdown zero drawing starts with one shared start announcement")
+advance(1.6)
+check(snapshots[ada].history[1] == snapshots[ben].history[1] and #snapshots[ada].history == 1, "clients see the same first draw")
+check(snapshots[ada].announcement.key == "number_" .. snapshots[ada].history[1], "shared number voice cue matches the visible ball")
 local late = player(3)
 players.PlayerAdded:Fire(late)
 advance(0.01)
@@ -173,6 +182,9 @@ for _, target in ipairs({ ada, ben }) do
 	end
 end
 check(true, "each player's qualification is computed from their own card")
+check(result.cards[1].multiplier == multipliers[1] and result.cards[2].multiplier == multipliers[2], "card multipliers are fixed through the full round")
+for _, card in ipairs(result.cards) do for _, cell in ipairs(card.cells) do assert(not cell.marked) end end
+check(true,"called numbers never mark main cells automatically")
 check(result.pesos == 20 and result.summary.bonusPending, "only existing participation reward is paid while bonus rules are pending")
 request(ada, "Participate")
 request(ada, "Reward", 9999)
@@ -181,6 +193,7 @@ untilPhase("Intermission")
 check(#snapshots[late].bonuses[1].cells == 3 and #snapshots[ada].history == 0, "reset deals fresh free cards to late joiners and clears draw history")
 request(ada, "Participate")
 untilPhase("Drawing")
+advance(1.6)
 local coins = savedProfiles[ada].data.pesos
 players.PlayerRemoving:Fire(ada)
 ada.Parent = nil

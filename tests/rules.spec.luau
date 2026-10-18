@@ -25,7 +25,7 @@ end)
 test("bonus cards use distinct 1–60 numbers and preserve every requested name/count", function()
 	for _ = 1, 100 do
 		local state = Rules.newCardState(Config, random)
-		assert(#state.cards == 0)
+		assert(#state.cards == 2 and #state.cards[1] == 25)
 		for _, definition in ipairs(Config.Bonuses) do
 			local seen, card = {}, state.bonuses[definition.id]
 			assert(#card.numbers == definition.count)
@@ -51,7 +51,7 @@ test("qualification depends on individual cards, never on another player's succe
 end)
 test("configured main cards are 5x5, marking rejects forged/undrawn cells", function()
 	local configuration = table.clone(Config)
-	configuration.Main = { Confirmed = true, Count = 2, FreeCenter = true }
+	configuration.Main = { CardsEnabled = true, Count = 2, FreeCenter = true, MultiplierWeights = Config.Main.MultiplierWeights }
 	local state = Rules.newCardState(configuration, random)
 	assert(#state.cards == 2 and #state.cards[1] == 25 and state.cards[1][13] == 0 and state.marks[1][0])
 	assert(not Rules.mark(state, {}, 1, 1))
@@ -63,9 +63,8 @@ test("configured main cards are 5x5, marking rejects forged/undrawn cells", func
 	assert(Rules.mark(state, drawn, 1, 1))
 	assert(not Rules.mark(state, drawn, 1, 1))
 end)
-test("participation settles once; changing settings/automatic marks cannot farm it", function()
+test("participation settles once; merely receiving cards cannot farm it", function()
 	local state = Rules.newCardState(Config, random)
-	Rules.markAll(state, { [1] = true })
 	assert(Rules.settle(state, Config.Rewards).total == 0)
 	assert(Rules.settle(state, Config.Rewards) == nil)
 	state = Rules.newCardState(Config, random)
@@ -140,7 +139,7 @@ test("profile normalization strips unknown ownership and invalid balances", func
 		local normalized = Economy.normalize({ pesos = value, owned = { exploit = true },
 			equipped = { marker = "marker_berry" }, settings = { autoMark = "yes" } }, Config.Catalog)
 		assert(normalized.pesos == 0 and not normalized.owned.exploit)
-		assert(normalized.equipped.marker == "marker_sun" and not normalized.settings.autoMark)
+		assert(normalized.equipped.marker == "marker_sun" and normalized.settings.autoMark == nil)
 	end
 	local valid = Economy.defaults()
 	valid.pesos = 99
@@ -154,5 +153,36 @@ test("saved volume settings migrate old profiles and sanitize nonfinite inputs",
 	local profile = Economy.normalize({ settings = { musicVolume = 0/0, sfxVolume = 0.25 } }, Config.Catalog)
 	assert(profile.settings.musicVolume == 0.5 and profile.settings.sfxVolume == 0.25)
 	assert(Economy.normalize({}, Config.Catalog).settings.musicVolume == 0.5)
+end)
+test("1000 deals use unique numbers per card and fixed 1–20 integer multipliers", function()
+	for _=1,1000 do
+		local state=Rules.newCardState(Config,random)
+		for index,card in ipairs(state.cards) do
+			local seen={}
+			for _,number in ipairs(card) do assert(number>=1 and number<=60 and not seen[number]); seen[number]=true end
+			local multiplier=state.multipliers[index]
+			assert(multiplier%1==0 and multiplier>=1 and multiplier<=20)
+			Rules.mark(state,{[card[1]]=true},index,1)
+			assert(state.multipliers[index]==multiplier)
+		end
+	end
+end)
+test("configured multiplier weights map exactly to their probability intervals",function()
+	for roll=1,20 do assert(Rules.cardMultiplier(Config.Main.MultiplierWeights,function() return roll end)==roll) end
+	local weights=table.create(20,0); weights[3]=2; weights[20]=1
+	assert(Rules.cardMultiplier(weights,function() return 2 end)==3)
+	assert(Rules.cardMultiplier(weights,function() return 3 end)==20)
+	weights[1]=-1
+	assert(not pcall(Rules.cardMultiplier,weights,random))
+end)
+test("a main multiplier applies once to that card reward, never to participation or another card",function()
+	local state=Rules.newCardState(Config,random)
+	state.multipliers={7,20}
+	assert(Rules.claimMainReward(state,1,10,false)==nil)
+	assert(Rules.claimMainReward(state,1,10,true)==70)
+	assert(Rules.claimMainReward(state,1,10,true)==nil)
+	assert(Rules.claimMainReward(state,2,10,true)==200)
+	state.participated=true
+	assert(Rules.settle(state,Config.Rewards).total==20)
 end)
 print("Rules/economy: " .. passed .. " tests passed")

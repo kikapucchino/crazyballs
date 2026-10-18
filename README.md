@@ -1,50 +1,52 @@
-# Cloudpop Commons · build 0.2.0
+# Cloudpop Commons · build 0.3.0
 
-A Roblox multiplayer lobby with shared ball draws, free bonus cards, a compact HUD, and an equippable card holder. **This is an intermediate playable build, not the completed bonus game.** Unspecified rules remain disabled rather than being invented.
+A Roblox multiplayer party-game work in progress with a walkable three-room observatory, six card panels per player, shared ball draws, and a stage presenter. Main patterns and bonus payouts still await the creator's remaining rules; this is not a finished release.
 
-## Download and open
+## Download and play
 
-1. Open **[CloudpopCommons-Studio.zip](dist/CloudpopCommons-Studio.zip)** and click GitHub's **Download raw file** button. Extract `CloudpopCommons.rbxl`.
-2. If that download fails, go to the repository home page → **Code → Download ZIP**. Extract it and find `dist/CloudpopCommons.rbxl`.
-3. In Roblox Studio: **File → Open from File** → choose `CloudpopCommons.rbxl` → **Play (F5)**.
-4. Walk around, sit at a table, equip **Cards** from your backpack, or press the compact **Cards** button. Open **Bonuses** to follow your qualifying numbers.
-5. Watch the machine draw exactly **20 unique balls from 1–60**. Opening your cards during the round counts toward the existing **20-Pesos participation reward**. You can spend earned Pesos on the displayed guaranteed cosmetics.
+1. Open **[CloudpopCommons-Studio.zip](dist/CloudpopCommons-Studio.zip)** → GitHub's **Download raw file** → extract `CloudpopCommons.rbxl`.
+2. If that fails, use the repository home page → **Code → Download ZIP**, extract it, and find `dist/CloudpopCommons.rbxl`.
+3. Roblox Studio → **File → Open from File** → open the new `.rbxl` → **Play (F5)**.
+4. Explore the draw hall, social lounge/café and viewing room. Equip **Cards** or use its button. On desktop the cards start open; touch devices start collapsed to leave movement controls available.
+5. Two free 5×5 main cards appear before the shared **15-second countdown** ends. Each has a fixed **1×–20× multiplier**. Tap called numbers to mark them. **•** means called/unmarked; **✓** means marked.
+6. Follow the shared draw through **20 unique numbers from 1–60**. Coin flip, Duck hunt, Pačinki and Go CRazy appear in a **2×2 group beside the main cards**. Narrow screens scroll without shrinking the number buttons.
 
-No plugin, API key, external model, paid asset, or manual script copying is needed. The scenery appears when Play starts. Studio practice uses temporary profiles and requires no publishing or API-service setting. Download a fresh copy to replace an older build; this does not update places you have already opened in Studio.
+The packaged place needs no plugin, API key or manual script copying. Scenery is created when Play starts. Studio practice is temporary and requires no API-service permission. Replace old downloaded copies to see this update.
 
-[Studio testing and exact Explorer hierarchy](docs/STUDIO_GUIDE.md) · [Unresolved rules and implementation status](docs/IMPLEMENTATION_STATUS.md) · [Official policy review](docs/POLICY_REVIEW.md)
+[Studio testing and Explorer hierarchy](docs/STUDIO_GUIDE.md) · [Remaining rules](docs/IMPLEMENTATION_STATUS.md) · [Supplying licensed human voice/music](docs/AUDIO_SETUP.md) · [Policy review](docs/POLICY_REVIEW.md)
 
-## Implemented
+## What this update implements
 
-- Original navy/blue/ice observatory with tables, eight usable seats, paths, planting details, open canopy, central animated machine and large shared draw display. Normal Roblox avatars, camera and movement are retained.
-- Compact HUD, current ball, 0/20–20/20 counter, recent balls, Pesos, collapsible cards, four bonus-card entries, cosmetic shop, saved volume/accessibility settings and discreet creator credit.
-- A server-created, non-droppable card-holder Tool visible to other players. Equipping it opens your cards; respawn grants it again.
-- One authoritative shuffled 60-number pool per round, exactly 20 draws, automatic individual bonus matching, late-join spectators, fresh cards next round, and multiple simultaneous qualifications.
-- Three-number Coin flip card, four-number Duck hunt card, four-number Pačinki card; Go CRazy entry is explicitly pending its qualification count.
-- A 5×5 main-card UI and validated marking component. **No main cards are currently dealt:** count, winning patterns, free-center choice and pattern rewards need confirmation.
-- Original participation reward and six guaranteed Pesos cosmetics; no wagers, paid entry, Robux prompts, paid randomness, currency transfer or cash-out.
-- Existing session-locked DataStore saving, failure handling, retries, autosave, leave settlement and shutdown handling. Old volume-less profiles receive defaults.
-- Audio controller with separate volumes, four effect voices and one music voice with sequential fades. **Audio asset slots are empty; this build is silent.**
+- Fully enclosed draw hall, social lounge and separate viewing room, with floors, ceilings, glazed exterior walls, open interior doorways, trim, lights, furniture, seating and exterior island/sea views.
+- Presenter stage and original character, central ball machine, main draw screen, second live viewing screen and a furnished **non-alcoholic Sky Café**.
+- Normal Roblox avatars, camera, movement, chat and backpack controls. A replicated card-holder Tool survives respawn without duplicates.
+- Bottom-center horizontal main cards with an adjacent 2×2 bonus group. Mobile uses navigation/scrolling and 44-pixel number targets; movement areas are reserved.
+- Exactly two distinct-number main cards plus one entry for each of the four bonuses. Go CRazy's numbers remain pending its unconfirmed qualification count.
+- Server-assigned main-card multipliers fixed at deal time: **each integer 1–20 has a 5% chance**. Relative weights are editable in `Config.Main.MultiplierWeights`; purchases/behavior do not alter them.
+- Manual marking only. The old automatic-mark setting and action were removed, including from migrated saves. Bonus-number matching remains automatic qualification tracking as requested.
+- One server deadline for the 15-second countdown; drawing starts automatically at zero with the shared start cue, followed by the first ball after that cue's 1.5-second slot. Twenty balls follow at four-second intervals.
+- Queued presenter announcements/subtitles, an explicit recording manifest for all 60 numbers and transition/bonus names, separate music/voice/effects volumes and mute controls, preload handling and voice ducking.
+- Existing server-authoritative cosmetic purchases, participation reward, session-locked saving, retries, autosave, late joins and shutdown handling remain in place.
 
-A preview round lasts approximately 110 seconds: 12 seconds of intermission, 80 seconds of draws, 8 seconds of last call, and 10 seconds of results. This timing does not decide whether future bonuses interrupt or follow the draw.
+**No recordings are included.** Every voice/music/effect asset slot is empty. Subtitles work; the distributed build is silent. No synthetic speech or recognizable-person imitation is used. The music engine loops a supplied lobby track, switches a single music channel for bonuses, and ducks it while a loaded human recording plays.
 
-## Explicitly unfinished
+## What remains unfinished
 
-**No bonus animations, bonus selection UI, queued bonus execution, or bonus payouts are active.** The four cards track eligibility only. Coin/Duck/Pačinki signed bounds are preserved in configuration. Tested calculation helpers support shared Coin/Pačinki outcomes, Duck automatic fallback, exact signed integer multiplication by 20 and duplicate computation receipts; they are not integrated with balance mutation or persistent bonus receipts.
+The creator confirmed **two main cards + four bonus cards = six cards**. Winning patterns, free-center treatment and base pattern rewards remain unanswered. All 25 cells currently receive numbers for dealing/marking; no free-center privilege or pattern payout is applied. A tested reward helper multiplies an eligible main-card base reward once by that card's multiplier, but is not called until pattern/base rules exist. It never multiplies participation or bonus rewards.
 
-Go CRazy's **64 segments and 3 selectable prize pointers** are recorded. Sector values/probabilities, qualification count, choice versus shared-result semantics, secondary choices, and multiplier composition remain unconfirmed. Its playable wheel is not implemented.
+Coin/Duck/Pačinki qualification counts (3/4/4), signed bounds and names are preserved. Their presentation/selection games, queue execution and payouts remain inactive because distributions, negative-balance rules and timing/retriggering are unconfirmed. Go CRazy's 64 segments and three pointers are recorded, but its qualification count, sector values/probabilities and pointer-result rules are still missing. Existing bonus calculation helpers remain tested; they are not finished playable bonuses.
 
-Main pattern wins, negative deductions, bonus timing/retriggering and the large-balance schema migration await decisions. Changing a configuration flag alone does not implement these systems. Existing version-1 saves remain compatible and use the existing nonnegative, bounded numeric ledger; huge/signed bonus amounts are never written to it.
+The current build pays only the existing 20-Pesos participation reward. Main multipliers do not change it. Main marking or intentionally opening/equipping cards establishes participation; joining and leaving before the first ball pays nothing. Guaranteed cosmetics retain their displayed prices. There are no wagers, paid entry, Robux prompts, paid chance boosts, transfers or cash-out.
 
-The two layout-reference screenshots mentioned in the pasted specification were unavailable. This build follows the written blue-lobby requirements and does not claim an exact reference-image match. Custom licensed music, Robux cosmetic products and real Studio visual/mobile/multiplayer validation remain outstanding.
+The referenced layout screenshot was unavailable, so the implementation follows the written layout. Actual Studio visual/touch/multiplayer tests, licensed audio and resolution of the previously documented gambling-policy concerns are still required.
 
-## Build and verify
+## Build and checks
 
 ```sh
 bash tools/bootstrap.sh
 ```
 
-This installs pinned official Luau and Rojo tools with checksum verification, checks the source, and rebuilds the place. Tools live outside the checkout under `/workspace/.cloudpop-tools` (override `CLOUDPOP_TOOLS_DIR` elsewhere). With tools already installed:
+This installs pinned official Luau and Rojo tooling with verification, runs tests and builds the Studio artifacts. With tools already installed:
 
 ```sh
 python3 tools/check.py
@@ -52,6 +54,6 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 python3 tools/build_place.py
 ```
 
-Current validation: **48 Luau checks + 5 packaging tests**. These execute actual modules/controllers against mock Roblox services and test unique draws, synchronization, qualification, malformed requests, signed bounds, exact arithmetic, idempotence, startup, tools, audio, session conflicts and save failures. They do not replace Roblox Studio's renderer, networking, audio permissions, mobile emulator or live DataStore tests.
+**75 checks pass: 70 Luau checks and 5 packaging tests.** They execute actual modules/controllers with mock Roblox services, sample thousands of decks/cards, verify fixed multipliers/manual marks/shared deadlines, test audio queueing/ducking and save failure cases, and check enclosure geometry plus a collision-clear route into each room. Geometry and UI-coordinate tests do not replace Studio rendering, real avatar navigation, network latency, touch controls or asset-permission testing.
 
-The build creates `.rbxl`, `.rbxlx`, a ZIP containing the binary place, and SHA-256 sidecars in `dist/`. Rojo serializes every script into the proper service. Optional live-sync configuration is in `default.project.json`.
+`dist/` contains `.rbxl`, `.rbxlx`, a ZIP containing the binary place, and SHA-256 sidecars. Optional Rojo live sync uses `default.project.json`.

@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Cloudpop")
 local Config = require(Shared.Config)
 local Rules = require(Shared.GameRules)
+local Manifest = require(Shared.AudioManifest)
 local Economy = require(Shared.Economy)
 local Profiles = require(script.Parent.ProfileStore)
 local Holder = require(script.Parent.CardHolder)
@@ -22,7 +23,7 @@ require(script.Parent.Workshop).build()
 local rng = Random.new()
 local function nextInteger(low, high) return rng:NextInteger(low, high) end
 local profiles, boards, summaries, rateLimits, loading, characterConnections = {}, {}, {}, {}, {}, {}
-local round = { id = 0, phase = "Waiting", deadline = 0, history = {}, drawn = {} }
+local round = { id = 0, phase = "Waiting", deadline = 0, history = {}, drawn = {}, announcement = nil, announcementId = 0 }
 local closing = false
 
 local function usable(player)
@@ -46,7 +47,7 @@ local function send(player, notice)
 				table.insert(cells, { number = number, marked = board.marks[cardIndex][number] == true,
 					available = round.drawn[number] == true })
 			end
-			table.insert(cardViews, { cells = cells })
+			table.insert(cardViews, { cells = cells, multiplier = board.multipliers[cardIndex] })
 		end
 	end
 	local bonusViews = {}
@@ -66,7 +67,7 @@ local function send(player, notice)
 	stateEvent:FireClient(player, {
 		roundId = round.id, phase = round.phase, deadline = round.deadline,
 		history = round.history, drawCount = Config.DrawCount, cards = cardViews,
-		bonuses = bonusViews, mainPending = not Config.Main.Confirmed, bonusPending = true,
+		announcement = round.announcement, activeBonus = nil, bonuses = bonusViews, mainPending = not Config.Main.RewardsConfirmed, bonusPending = true,
 		participated = if board then board.participated else false,
 		pesos = profile.data.pesos, rounds = profile.data.rounds,
 		owned = profile.data.owned, equipped = profile.data.equipped, settings = profile.data.settings,
@@ -144,14 +145,13 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 		if bought then changed(profile) end
 		notice = message
 	elseif name == "Setting" then
-		if a == "autoMark" or a == "reducedMotion" then
+		if a == "reducedMotion" then
 			if type(b) ~= "boolean" then return end
-		elseif a == "musicVolume" or a == "sfxVolume" then
+		elseif a == "musicVolume" or a == "voiceVolume" or a == "sfxVolume" then
 			if type(b) ~= "number" or b ~= b or b < 0 or b > 1 then return end
 		else return end
 		profile.data.settings[a] = b
 		changed(profile)
-		if board and a == "autoMark" and b then Rules.markAll(board, round.drawn) end
 	elseif board and requestedRound == round.id and not board.settled then
 		if name == "Participate" then
 			board.participated = true
@@ -189,15 +189,26 @@ local function updateDisplay()
 	if not model then return end
 	local display, ball = model:FindFirstChild("DrawDisplay"), model:FindFirstChild("DrawnBall")
 	local current = round.history[#round.history]
+	local viewing = model:FindFirstChild("ViewingDisplay")
+	if viewing then viewing.Readout.Text.Text = (if current then "BALL " .. current else "NEXT ROUND") .. "\n" .. #round.history .. " / " .. Config.DrawCount end
 	if display then display.Readout.Text.Text = (if current then "BALL " .. current else "NEXT ROUND") .. "\n" .. #round.history .. " / " .. Config.DrawCount end
 	if ball then ball.BallNumber.Text.Text = if current then tostring(current) else "—" end
 end
-local function phase(name, seconds)
+local function phase(name, seconds, announcementKey)
+	if announcementKey then
+		local entry = assert(Manifest[announcementKey], "Missing announcement manifest entry")
+		assert(entry.duration > 0 and entry.duration <= 3, "Voice clips must be at most 3 seconds for the draw cadence")
+		round.announcementId += 1
+		round.announcement = { id = round.announcementId, roundId = round.id, key = announcementKey,
+			text = entry.text, duration = entry.duration, at = workspace:GetServerTimeNow() }
+	end
 	round.phase = name
 	updateDisplay()
 	round.deadline = workspace:GetServerTimeNow() + seconds
 	broadcast()
-	while not closing and workspace:GetServerTimeNow() < round.deadline do task.wait(0.15) end
+	while not closing and workspace:GetServerTimeNow() < round.deadline do
+		task.wait(math.min(0.15, round.deadline - workspace:GetServerTimeNow()))
+	end
 end
 
 game:BindToClose(function()
@@ -228,7 +239,8 @@ while not closing do
 		if usable(player) then boards[player] = Rules.newCardState(Config, nextInteger) end
 	end
 	phase("Assignment", 0)
-	phase("Intermission", Config.IntermissionSeconds)
+	phase("Intermission", Config.IntermissionSeconds, "upcoming")
+	phase("Drawing", Manifest.start.duration, "start")
 	local deck = Rules.shuffle(Config.NumberPool, nextInteger)
 	for index = 1, Config.DrawCount do
 		if closing then break end
@@ -237,17 +249,14 @@ while not closing do
 		table.insert(round.history, number)
 		for player, board in pairs(boards) do
 			Rules.qualify(board, round.drawn)
-			if usable(player) and profiles[player].data.settings.autoMark then
-				Rules.markAll(board, round.drawn)
-			end
 		end
-		phase("Drawing", Config.DrawSeconds)
+		phase("Drawing", Config.DrawSeconds, "number_" .. number)
 	end
 	if closing then break end
-	phase("LastCall", 8)
+	phase("LastCall", 8, "lastCall")
 	phase("Qualification", 0)
 	-- Bonus execution is intentionally gated until distribution, timing and deduction rules are confirmed.
 	for player in pairs(profiles) do settle(player) end
-	phase("Results", Config.ResultsSeconds)
+	phase("Results", Config.ResultsSeconds, "results")
 	phase("Reset", 0)
 end

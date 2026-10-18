@@ -1,23 +1,34 @@
-# Studio testing · build 0.2.0
+# Studio testing · build 0.3.0
 
-## 1. Open the packaged place
+## 1. Open and play
 
-On GitHub, open `dist/CloudpopCommons-Studio.zip` and use **Download raw file**, then extract `CloudpopCommons.rbxl`. If the file-download button fails, use the repository's **Code → Download ZIP**, extract that download, and find `dist/CloudpopCommons.rbxl`.
+From GitHub open `dist/CloudpopCommons-Studio.zip` → **Download raw file** → extract `CloudpopCommons.rbxl`. If that fails, use the repository home page → **Code → Download ZIP**, extract it and find the same file inside `dist/`.
 
-In Roblox Studio, choose **File → Open from File**, select the new `.rbxl`, open **View → Output**, and press **Play (F5)**. Use Play rather than Run so Roblox creates your avatar and runs the client UI. No plugin or API-service access is needed for this local practice test.
+In Studio choose **File → Open from File**, open the new `.rbxl`, open **View → Output**, and press **Play (F5)**, not Run. No plugin or API-service access is needed for practice. The rooms are built when Play starts, so the edit viewport does not contain the generated furniture beforehand.
 
-The lobby is built on Play, not pre-rendered in the editing viewport. Expect a navy/blue observatory, central machine, draw display, tables/seats, normal camera and a small HUD. The Cards panel starts collapsed. Walk with normal Roblox controls. Equip **Cards** in the backpack or click **Cards**; open **Bonuses** to see your free qualifying numbers.
+You should spawn in the enclosed main hall facing the machine and presenter stage. The right-hand doorways lead to a lounge/café and separate viewing room. Walk through both doors, sit/stand, inspect the windows, and verify the second viewing screen shows the same number as the main display. All default avatar/camera controls remain in place.
 
-Main shows a blank **5×5** preview because its card count/pattern/center/reward rules remain unconfirmed. Go CRazy likewise has a pending qualification entry. These are explicit unfinished areas, not a failed data load.
+Desktop cards start visible in a bottom-center horizontal tray: **two main cards on the left, four bonus entries in a 2×2 block on the right**. On touch, open Cards or equip the holder. Scroll horizontally or use Main/Bonus navigation; a short viewport also scrolls vertically rather than shrinking numbers.
 
-Follow a full round: 0/20 → 20/20, numbers in 1–60 with no duplicates, then a result notification. Opening cards during the round counts toward the existing 20-Pesos participation reward. Bonus matches are automatic and qualifiers are shown individually; no bonus payout currently runs. Choose a guaranteed cosmetic in Looks once affordable. Studio practice resets all changes on Stop by design.
+## 2. One round
 
-## 2. Explorer hierarchy
+1. Confirm both 5×5 cards are dealt during **Starts in 15**, with different numbers within each card and a multiplier from 1×–20× on each. Overlap between different cards is allowed.
+2. At zero the server changes to Drawing and announces the start. Its 1.5-second cue precedes the first ball; then 20 balls are drawn at four-second intervals.
+3. Try clicking an uncalled number: it must not mark. A called/unmarked number shows **•**; click/tap it to change to **✓**. Earlier called numbers remain markable until LastCall ends. No automatic-mark control remains.
+4. Watch the bonus cards: Coin flip needs three matches, Duck hunt and Pačinki four. Go CRazy has a visibly pending count; it must not qualify from an empty list. More than one bonus can qualify.
+5. Confirm each main multiplier is unchanged from the beginning of the round. It does not multiply participation or bonus results.
+6. At results, a participating player receives the existing 20-Pesos participation reward. Main pattern payouts and bonus payouts are still inactive. A valid mark or intentionally opening/equipping cards establishes participation; passive receipt of cards does not.
+
+The center currently contains a number. Free-center treatment, winning patterns and base rewards remain unanswered; no pattern winner is declared. The unresolved Go CRazy and signed-bonus rules are documented in `IMPLEMENTATION_STATUS.md`.
+
+## 3. Exact Explorer hierarchy
 
 ```text
 ReplicatedStorage
 └── Cloudpop                         Folder
     ├── Config                       ModuleScript
+    ├── AudioManifest                ModuleScript
+    ├── CardLayout                   ModuleScript
     ├── Economy                      ModuleScript
     ├── GameRules                    ModuleScript
     ├── BonusRules                   ModuleScript (calculation groundwork)
@@ -27,11 +38,13 @@ ServerScriptService
     ├── GameServer                   Script
     ├── ProfileStore                 ModuleScript
     ├── Workshop                     ModuleScript
+    ├── LobbyPlan                    ModuleScript
     └── CardHolder                   ModuleScript
 StarterGui
 └── CloudpopUI                       ScreenGui, ResetOnSpawn=false
     ├── StartupStatus                TextLabel
     ├── GameClient                   LocalScript
+    ├── CardPanel                    ModuleScript
     ├── AudioController              ModuleScript
     └── WorldEffects                 ModuleScript
 Workspace
@@ -39,64 +52,55 @@ Lighting
 SoundService
 ```
 
-Runtime additions:
+Runtime instances include `Cloudpop.Remotes.Action`/`State`, `Workspace.CloudpopWorkshop`, the replicated `Cards` Tool in each player's Backpack/Character, the cloned UI in PlayerGui, and local `CloudpopMusic`, `CloudpopVoice` and four effect Sounds in SoundService.
 
-- `ReplicatedStorage.Cloudpop.Remotes.Action` and `.State`: RemoteEvents.
-- `Workspace.CloudpopWorkshop`: the lobby Model, including `DrawDisplay.Readout.Text`, `DrawnBall.BallNumber.Text`, `AirChamber`, 16 `DecorativeBall` parts, seats and `WelcomeMat` SpawnLocation.
-- `Players.<player>.Backpack.Cards`: Tool with Handle and two SurfaceGuis. Equipping moves it to Character. Everyone sees the same decorative holder; private card data is not placed on it.
-- `Players.<player>.PlayerGui.CloudpopUI`: HUD, CardPanel, four pages, toolbar and notifications.
-- `SoundService.CloudpopMusic` and four `CloudpopEffect` Sounds on each client.
+`Workshop` uses `LobbyPlan` for the three floor/ceiling extents and doorway geometry. The main and viewing readouts are `DrawDisplay.Readout.Text` and `ViewingDisplay.Readout.Text`. `Presenter` is an original static character Model. The card holder is decorative; private card numbers are only sent to their owner.
 
-Scripts create these runtime objects; do not manually duplicate them. Scenery is server replicated; machine motion is cheap cosmetic client animation. Number generation, marking eligibility, qualification, balances, prices and saving are server-controlled. Snapshots omit future draws, other players' cards and hidden bonus mappings.
+The server owns deck generation, multipliers, eligibility, marks, prices, balances and saves. Clients send intentions, not reward amounts or prices. Main-card multiplier weights are integers in `Config.Main.MultiplierWeights`; the default 20 equal weights give exactly 5% to each value. Changing that table is an explicit tuning change, not a spending-based adjustment.
 
-The earlier `FallenPartsDestroyHeight` startup bug remains fixed: that Studio-restricted property is serialized in `default.project.json`, never assigned by a running game script. Remotes are now created before scenery. The startup label displays initializer errors, and a server-response watchdog exposes a prolonged wait. Always read Output's first server error if initialization stalls; Linux checks cannot rule out every Studio runtime issue.
+## 4. Multiplayer and mobile
 
-## 3. Test multiplayer, late join and respawn
+Use Studio's **Test → Server & Clients / Local Server** with two clients (labels vary by Studio version). Verify shared countdown/deadline, first-ball timing, all 20 numbers, visible avatars/holders, individual cards, independent marks, different possible main multipliers and individual bonus qualifications.
 
-Use Studio **Test → Server & Clients / Local Server**, choose **2 clients**, and start. Exact menu labels vary by Studio release.
+Join another client after drawing starts: it must wait for fresh cards next intermission. Reset an avatar: one holder returns and the GUI is not duplicated. Buy an owned cosmetic twice: the second action equips without charging again. Leaving before the first draw grants no participation; leaving after participation settles once.
 
-Check these outcomes:
+Use Device Emulator at desktop, portrait phone and landscape phone sizes. Check:
 
-- Both avatars can walk, see one another, sit and stand without a scripted camera takeover.
-- Equip a holder in one client and see it from the other. Reset that avatar; the holder returns once, and the HUD is not duplicated.
-- Both clients see the same ball at each draw and the same 20-number history. Cards and qualification progress are personal.
-- You may qualify for more than one bonus type. Pending Go CRazy never qualifies from zero numbers.
-- A client joining after drawing starts receives no current-round qualifying numbers and gets fresh cards next intermission.
-- Opening cards and leaving before the first draw gives no participation reward. Leaving after participating and seeing a draw settles the reward once.
-- Buying an owned cosmetic again equips it without another charge; settings and cosmetics never change draw odds.
-- Main-card/pattern and bonus-selection tests remain pending their implementation; do not mistake the helper tests for active bonus gameplay.
+- Bottom-center tray, readable 44-pixel cell targets, horizontal main cards and the adjacent two-column bonus group.
+- Horizontal/vertical scrolling and Main/Bonus navigation reveal every cell and all four bonus cards.
+- Movement/jump controls work while Cards is open and closed. Phone layouts reserve the lower area; narrow landscape also reserves side margins. On short screens the large HUD hides while the tray is open; its header retains the current ball/count or countdown, and subtitles move to the top.
+- Looks/Settings, three volume/mute controls, reduced motion and the creator credit remain reachable.
+- The main hall, stage, lounge seating, café counter and viewing room have clear walking routes and complete walls/ceilings. Check actual collision, seat orientation, lighting, text contrast, camera clipping and performance.
 
-Solo play does not wait for additional users. Four-player private tests are a reasonable first multiplayer target; configure server size separately in Roblox's experience settings.
+Automated tests check tray geometry and collision-clear room routes, not actual rendering or touch input. These real Studio checks remain outstanding.
 
-## 4. Test mobile and accessibility
+## 5. Presenter and sound
 
-Use Studio's Device Emulator for portrait phone, landscape phone and desktop. Verify the collapsed HUD leaves most of the lobby visible, Roblox controls remain usable, and the central toolbar avoids the movement stick/jump corners. An opened panel scrolls. Short landscape layouts put the panel centrally and temporarily hide the HUD behind it; closing restores it.
+**This distributed build is silent:** all audio IDs are empty. It displays synchronized subtitles for the upcoming round, start, each number, last call and results. Private qualification notices do not announce a shared bonus start.
 
-Check all four tabs, 25 preview cells, bonus progress, wardrobe and volume buttons. Main cells should show a check as well as color when marked after main rules are implemented. Bonus matches already use check marks. Try reduced motion: decorative animation and draw-ball bounce should stop. Automatic marking is free and will catch previous main-card matches when main cards are enabled.
+Follow [AUDIO_SETUP.md](AUDIO_SETUP.md) to supply 68 licensed human recordings and the music/effect tracks. There is no synthetic speech. Verify preloading, asset permissions, spoken-number matching, no overlap, music looping, smooth switching, ducking/restoration and individual mute settings. Bonus voice/music entries are prepared, but actual bonus-game triggering remains unfinished.
 
-Music and SFX volumes are independent and saved. **The distributed build has no filled audio asset IDs**, so silence is expected. See `IMPLEMENTATION_STATUS.md` for licensed-audio slots and the separate future bonus-music identities.
+## 6. Saving and rebuilding
 
-Real touch targets, camera sightlines, frame rate, text scaling and core-UI overlap require this manual check; they were not verified by a Roblox renderer in the cloud environment.
+Studio practice never calls DataStore and resets on Stop. For persistence tests use a **separate private test experience**:
 
-## 5. Test reliable saving privately
+1. Publish that test copy and enable **Studio Access to API Services** there.
+2. Set a Boolean attribute `EnableStudioSaves=true` on `CloudpopServer.ProfileStore`.
+3. Earn participation Pesos, purchase/equip a cosmetic and change voice volume. Wait for **Progress saved** in Settings, stop and rejoin.
+4. Verify balance, ownership, style and all three volumes persist. Also test through the normal Roblox client.
 
-Only do this after local play works. Use a **separate private test experience**, not live player data.
+The store stays `CloudpopProfiles_v1`, key `player_<UserId>`. Existing saves retain their balance/cosmetics; missing voice volume gets 0.8. Old automatic-mark settings are discarded. Signed/huge bonus balances are not written to this numeric version-1 ledger.
 
-1. Publish your test copy using Studio.
-2. Enable **Studio Access to API Services** for that private test experience.
-3. Add a Boolean attribute `EnableStudioSaves=true` to `ServerScriptService.CloudpopServer.ProfileStore`.
-4. Play, participate, buy/equip a cosmetic and change volume. Open Settings and wait for **Progress saved**.
-5. Stop and play again; verify balance, ownership, equipped style, volumes and reduced motion persist.
-6. Also join using the normal Roblox client. Published servers use persistence regardless of the Studio-only attribute.
+UpdateAsync, single-owner session leases, retries, 45-second autosave and close handling remain unchanged. Failed loads never become blank live profiles; mutations stop near an unrenewed lease's expiry. A crash/storage outage can lose changes since the last successful save. Do not point Studio tests at live player data.
 
-With the attribute absent/false, Studio never calls DataStore, including in an unpublished place. The store remains `CloudpopProfiles_v1`, key `player_<UserId>`. Old saves keep their cosmetics and balance; new volume fields receive defaults. Large signed bonus balances are not stored in this schema.
+After source edits:
 
-Saving uses UpdateAsync, one session lease per player, three retries, 45-second autosave and a final close attempt. A five-minute lease prevents two servers overwriting each other. Mutations stop near an unrenewed lease's expiry; a failed initial load never becomes a blank live profile. Shutdown has a bounded wait. A crash or sustained storage outage may lose changes since the last successful save; reliable handling is not a guarantee against unavailable storage.
+```sh
+python3 tools/check.py
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 tools/build_place.py
+```
 
-## 6. Edit and rebuild
+Reopen the rebuilt place. Save Studio-only edits separately or sync them to repository source before rebuilding. The packaged `.rbxl` does not require Rojo to open.
 
-Source files map to the Explorer locations above. After a repository edit, run `python3 tools/check.py`, `python3 -m unittest discover -s tests -p 'test_*.py'`, and `python3 tools/build_place.py`; reopen the rebuilt place. Optional Rojo live sync uses `default.project.json`.
-
-Save Studio-only edits to a separate copy or sync them into source. Rebuilding from GitHub source cannot include changes made only in a local Studio file.
-
-There is no Robux receipt system yet. Do not treat any Pesos remote as proof of payment. Resolve [remaining rules](IMPLEMENTATION_STATUS.md) and [policy concerns](POLICY_REVIEW.md) before implementing or publishing the final bonus game.
+If startup stalls, read the first Output error. Startup errors and a server-response watchdog are visible in the UI. The prior restricted `FallenPartsDestroyHeight` runtime-write bug remains fixed; that setting is saved in the place file. No cloud test substitutes for running this build in Studio.
