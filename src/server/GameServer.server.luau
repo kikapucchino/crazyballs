@@ -5,7 +5,7 @@ local Config = require(Shared.Config)
 local Rules = require(Shared.GameRules)
 local Economy = require(Shared.Economy)
 local Profiles = require(script.Parent.ProfileStore)
-require(script.Parent.Workshop).build()
+local Holder = require(script.Parent.CardHolder)
 
 local remotes = Instance.new("Folder")
 remotes.Name = "Remotes"
@@ -17,9 +17,11 @@ local stateEvent = Instance.new("RemoteEvent")
 stateEvent.Name = "State"
 stateEvent.Parent = remotes
 
+-- Publish networking before constructing scenery, so a scene error cannot hide the protocol.
+require(script.Parent.Workshop).build()
 local rng = Random.new()
 local function nextInteger(low, high) return rng:NextInteger(low, high) end
-local profiles, boards, summaries, rateLimits, loading = {}, {}, {}, {}, {}
+local profiles, boards, summaries, rateLimits, loading, characterConnections = {}, {}, {}, {}, {}, {}
 local round = { id = 0, phase = "Waiting", deadline = 0, history = {}, drawn = {} }
 local closing = false
 
@@ -44,17 +46,27 @@ local function send(player, notice)
 				table.insert(cells, { number = number, marked = board.marks[cardIndex][number] == true,
 					available = round.drawn[number] == true })
 			end
-			table.insert(cardViews, { cells = cells, complete = board.claimed[cardIndex] })
+			table.insert(cardViews, { cells = cells })
 		end
 	end
-	local progress, target = 0, 5
-	if board then progress, target = Rules.goalProgress(board) end
+	local bonusViews = {}
+	for _, definition in ipairs(Config.Bonuses) do
+		local card = board and board.bonuses[definition.id]
+		local cells = {}
+		if card then
+			for _, number in ipairs(card.numbers) do
+				table.insert(cells, { number = number, marked = round.drawn[number] == true })
+			end
+		end
+		table.insert(bonusViews, { id = definition.id, name = definition.name, cells = cells,
+			progress = if card then card.progress else 0, target = definition.count,
+			qualified = card and card.qualified == true, pending = true })
+	end
 	-- Future draws and other players' profiles never leave the server.
 	stateEvent:FireClient(player, {
 		roundId = round.id, phase = round.phase, deadline = round.deadline,
 		history = round.history, drawCount = Config.DrawCount, cards = cardViews,
-		goal = if board then board.goal else "trail", goalProgress = progress, goalTarget = target,
-		swapped = if board then board.swapped else false,
+		bonuses = bonusViews, mainPending = not Config.Main.Confirmed, bonusPending = true,
 		participated = if board then board.participated else false,
 		pesos = profile.data.pesos, rounds = profile.data.rounds,
 		owned = profile.data.owned, equipped = profile.data.equipped, settings = profile.data.settings,
@@ -67,17 +79,10 @@ local function broadcast()
 	for player in pairs(profiles) do send(player) end
 end
 
-local function checkPatterns(player)
-	local count = Rules.claimPatterns(boards[player])
-	if count > 0 then
-		send(player, "Row complete! +" .. count * Config.Rewards.Pattern .. " Pesos at round end.")
-	end
-end
-
 local function settle(player)
 	local board, profile = boards[player], profiles[player]
 	if not board or not profile or not usable(player) then return end
-	-- Choosing an objective and leaving before the first draw is not a played round.
+	-- Opening cards and leaving before the first draw is not a played round.
 	if #round.history == 0 then return end
 	local summary = Rules.settle(board, Config.Rewards)
 	if not summary then return end
@@ -101,8 +106,10 @@ local function addPlayer(player)
 		return
 	end
 	profiles[player] = profile
+	characterConnections[player] = player.CharacterAdded:Connect(function() task.spawn(Holder.give, player) end)
+	task.spawn(Holder.give, player)
 	if round.phase == "Intermission" then
-		boards[player] = Rules.newCardState(Config.NumberPool, nextInteger)
+		boards[player] = Rules.newCardState(Config, nextInteger)
 	end
 	broadcast()
 end
@@ -114,6 +121,7 @@ local function removePlayer(player)
 		settle(player)
 		Profiles.close(profile)
 	end
+	if characterConnections[player] then characterConnections[player]:Disconnect(); characterConnections[player] = nil end
 	profiles[player], boards[player], summaries[player], rateLimits[player] = nil, nil, nil, nil
 	broadcast()
 end
@@ -136,31 +144,19 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 		if bought then changed(profile) end
 		notice = message
 	elseif name == "Setting" then
-		if (a ~= "autoMark" and a ~= "reducedMotion") or type(b) ~= "boolean" then return end
+		if a == "autoMark" or a == "reducedMotion" then
+			if type(b) ~= "boolean" then return end
+		elseif a == "musicVolume" or a == "sfxVolume" then
+			if type(b) ~= "number" or b ~= b or b < 0 or b > 1 then return end
+		else return end
 		profile.data.settings[a] = b
 		changed(profile)
-		if board and not board.settled then
-			board.participated = true
-			if a == "autoMark" and b then
-				Rules.markAll(board, round.drawn)
-				checkPatterns(player)
-			end
-		end
+		if board and a == "autoMark" and b then Rules.markAll(board, round.drawn) end
 	elseif board and requestedRound == round.id and not board.settled then
-		if name == "Goal" and round.phase == "Intermission" and type(a) == "string" and Config.Goals[a] then
-			board.goal = a
+		if name == "Participate" then
 			board.participated = true
-		elseif name == "Mark" and (round.phase == "Drawing" or round.phase == "Event" or round.phase == "LastCall") then
-			if Rules.mark(board, round.drawn, a, b) then checkPatterns(player) end
-		elseif name == "Swap" and round.phase == "Event" then
-			if Rules.swap(board, a, b, c) then
-				checkPatterns(player)
-				notice = "Tailwind delivered! Your marks moved with their numbers."
-			end
-		elseif name == "Keep" and round.phase == "Event" and not board.swapped then
-			board.swapped = true
-			board.participated = true
-			notice = "Layout kept. Enjoy the breeze!"
+		elseif name == "Mark" and (round.phase == "Drawing" or round.phase == "LastCall") then
+			Rules.mark(board, round.drawn, a, b)
 		end
 	end
 	send(player, notice)
@@ -188,8 +184,17 @@ task.spawn(function()
 	end
 end)
 
+local function updateDisplay()
+	local model = workspace:FindFirstChild("CloudpopWorkshop")
+	if not model then return end
+	local display, ball = model:FindFirstChild("DrawDisplay"), model:FindFirstChild("DrawnBall")
+	local current = round.history[#round.history]
+	if display then display.Readout.Text.Text = (if current then "BALL " .. current else "NEXT ROUND") .. "\n" .. #round.history .. " / " .. Config.DrawCount end
+	if ball then ball.BallNumber.Text.Text = if current then tostring(current) else "—" end
+end
 local function phase(name, seconds)
 	round.phase = name
+	updateDisplay()
 	round.deadline = workspace:GetServerTimeNow() + seconds
 	broadcast()
 	while not closing and workspace:GetServerTimeNow() < round.deadline do task.wait(0.15) end
@@ -220,8 +225,9 @@ while not closing do
 	round.history, round.drawn = {}, {}
 	boards, summaries = {}, {}
 	for player in pairs(profiles) do
-		if usable(player) then boards[player] = Rules.newCardState(Config.NumberPool, nextInteger) end
+		if usable(player) then boards[player] = Rules.newCardState(Config, nextInteger) end
 	end
+	phase("Assignment", 0)
 	phase("Intermission", Config.IntermissionSeconds)
 	local deck = Rules.shuffle(Config.NumberPool, nextInteger)
 	for index = 1, Config.DrawCount do
@@ -230,16 +236,18 @@ while not closing do
 		round.drawn[number] = true
 		table.insert(round.history, number)
 		for player, board in pairs(boards) do
+			Rules.qualify(board, round.drawn)
 			if usable(player) and profiles[player].data.settings.autoMark then
 				Rules.markAll(board, round.drawn)
-				checkPatterns(player)
 			end
 		end
 		phase("Drawing", Config.DrawSeconds)
-		if index == Config.EventAfterDraw then phase("Event", Config.EventSeconds) end
 	end
 	if closing then break end
 	phase("LastCall", 8)
+	phase("Qualification", 0)
+	-- Bonus execution is intentionally gated until distribution, timing and deduction rules are confirmed.
 	for player in pairs(profiles) do settle(player) end
 	phase("Results", Config.ResultsSeconds)
+	phase("Reset", 0)
 end

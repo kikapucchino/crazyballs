@@ -4,10 +4,11 @@ local runServer = require("./.generated/ServerHarness")
 local loadWorkshop = require("./.generated/WorkshopHarness")
 local Rules = require("../src/shared/GameRules")
 local Economy = require("../src/shared/Economy")
+local Mock = require("./mock")
 local Config = require("../src/shared/Config")
 Config.IntermissionSeconds = 2
 Config.DrawSeconds = 0.2
-Config.EventSeconds = 2
+
 Config.ResultsSeconds = 1
 math.randomseed(118)
 
@@ -53,7 +54,7 @@ end
 local function signal()
 	local handlers = {}
 	return {
-		Connect = function(_, callback) table.insert(handlers, callback) end,
+		Connect = function(_, callback) table.insert(handlers, callback); return { Disconnect = function() end } end,
 		Fire = function(_, ...)
 			for _, callback in ipairs(handlers) do taskMock.spawn(callback, ...) end
 		end,
@@ -65,24 +66,15 @@ local shared = { Config = "Config", GameRules = "Rules", Economy = "Economy" }
 local players = { PlayerAdded = signal(), PlayerRemoving = signal() }
 function players:GetPlayers() return table.clone(playersList) end
 local function player(id)
-	local object = { UserId = id, Parent = players }
+	local object = { UserId = id, Parent = players, CharacterAdded = signal() }
 	function object:Kick(reason) self.kicked = reason end
 	table.insert(playersList, object)
 	return object
 end
 local ada, ben = player(1), player(2)
-local instance = {}
-function instance.new(class)
-	local object = {}
-	if class == "RemoteEvent" then
-		object.OnServerEvent = signal()
-		function object:FireClient(target, snapshot) snapshots[target] = copy(snapshot) end
-	end
-	return setmetatable(object, { __newindex = function(self, key, value)
-		rawset(self, key, value)
-		if key == "Parent" then value[self.Name] = self end
-	end })
-end
+local newInstance, allInstances, methods = Mock.instances()
+local instance = { new = newInstance }
+function methods:FireClient(target, snapshot) snapshots[target] = copy(snapshot) end
 local profileStore = {}
 function profileStore.load(target)
 	local profile = { data = Economy.defaults(), practice = true, saveStatus = "Test", closing = false }
@@ -92,7 +84,7 @@ end
 function profileStore.writable(profile) return profile and not profile.closing end
 function profileStore.save() return true end
 function profileStore.close(profile) profile.closing = true end
-local modules = { Config = Config, Rules = Rules, Economy = Economy, ProfileStore = profileStore }
+local modules = { Config = Config, Rules = Rules, Economy = Economy, ProfileStore = profileStore, CardHolder = { give = function() end } }
 local services = { Players = players, ReplicatedStorage = { WaitForChild = function() return shared end }, Lighting = {} }
 local shutdown
 local gameMock = {
@@ -111,17 +103,13 @@ local workspaceMock = setmetatable({
 		rawset(self, name, value)
 	end,
 })
-local function tuple(...) return { ... } end
-modules.Workshop = loadWorkshop(gameMock, workspaceMock, instance,
-	{ new = tuple }, { fromRGB = tuple }, {
-		Material = { SmoothPlastic = "SmoothPlastic" },
-		SurfaceType = { Smooth = "Smooth" }, PartType = { Ball = "Ball" },
-	})
+local globals = Mock.globals()
+modules.Workshop = loadWorkshop(gameMock, workspaceMock, instance, globals.Vector3, globals.Color3, globals.Enum, globals.Vector2, globals.UDim2)
 taskMock.spawn(function()
 	runServer(gameMock, workspaceMock, taskMock, instance,
 		{ new = function() return { NextInteger = function(_, low, high) return math.random(low, high) end } end },
 		function(name) return assert(modules[name], name) end,
-		{ Parent = { ProfileStore = "ProfileStore", Workshop = "Workshop" } }, { clock = function() return scheduler.now end })
+		{ Parent = { ProfileStore = "ProfileStore", Workshop = "Workshop", CardHolder = "CardHolder" } }, { clock = function() return scheduler.now end })
 end)
 local function request(target, name, a, b, c, roundId)
 	shared.Remotes.Action.OnServerEvent:Fire(target, name, a, b, c, roundId or snapshots[target].roundId)
@@ -136,71 +124,70 @@ advance(1.1)
 check(workspaceMock.CloudpopWorkshop and workspaceMock.CloudpopWorkshop.WelcomeMat
 	and shared.Remotes and shared.Remotes.Action and shared.Remotes.State,
 	"real workshop initialization completes and the server publishes both remotes")
-check(#snapshots[ada].cards == 2 and #snapshots[ben].cards == 2, "every player receives two free cards")
-check(snapshots[ada].deck == nil and #snapshots[ada].history == 0, "snapshots do not expose future draws")
-request(ada, "Goal", "twins", nil, nil, -100)
-check(snapshots[ada].goal == "trail" and not snapshots[ada].participated, "stale round requests cannot change an objective")
-request(ada, "Mark", 1, 1)
-check(not snapshots[ada].cards[1].cells[1].marked, "mark requests during intermission cannot mark undrawn numbers")
-request(ada, "Swap", 1, 1, 2)
-check(not snapshots[ada].swapped, "board swaps are rejected outside the event")
-request(ada, "Goal", "twins")
-request(ben, "Goal", "trail")
-request(ada, "Setting", "autoMark", true)
-request(ben, "Setting", "autoMark", true)
+check(#snapshots[ada].cards == 0 and snapshots[ada].mainPending, "unconfirmed main rules do not silently deal legacy 3x3 cards")
+check(#snapshots[ada].bonuses == 4 and #snapshots[ada].bonuses[1].cells == 3 and #snapshots[ada].bonuses[2].cells == 4,
+	"every player gets separate 3/4/4 bonus cards and an explicit pending wheel card")
+check(snapshots[ada].deck == nil and #snapshots[ada].history == 0, "snapshots do not expose future draws or hidden mappings")
+request(ada, "Participate", nil, nil, nil, -100)
+check(not snapshots[ada].participated, "stale participation requests are rejected")
+request(ada, "Participate")
+request(ben, "Participate")
 local early = player(4)
 players.PlayerAdded:Fire(early)
 advance(0.01)
-request(early, "Goal", "trail")
+request(early, "Participate")
 players.PlayerRemoving:Fire(early)
 early.Parent = nil
 for index, entry in ipairs(playersList) do if entry == early then table.remove(playersList, index); break end end
 advance(0.01)
-check(savedProfiles[early].data.pesos == 0, "joining and leaving before the first draw cannot farm participation rewards")
+check(savedProfiles[early].data.pesos == 0, "leaving before the first draw cannot farm participation")
 untilPhase("Drawing")
-check(snapshots[ada].history[1] == snapshots[ben].history[1], "clients see the same shared draw")
-local originalGoal = snapshots[ada].goal
-request(ada, "Goal", "trail")
-check(snapshots[ada].goal == originalGoal, "objectives cannot change after drawing begins")
+check(snapshots[ada].history[1] == snapshots[ben].history[1], "clients see the same first draw")
 local late = player(3)
 players.PlayerAdded:Fire(late)
 advance(0.01)
-check(#snapshots[late].cards == 0, "mid-round joins spectate until fresh cards are dealt")
-untilPhase("Event")
-local oldFirst = snapshots[ada].cards[1].cells[1].number
-local oldSecond = snapshots[ada].cards[1].cells[2].number
-request(ada, "Swap", 1, 1, 2)
-check(snapshots[ada].swapped and snapshots[ada].cards[1].cells[1].number == oldSecond,
-	"an event swap uses the server's card and changes the selected cells")
-request(ada, "Swap", 1, 1, 2)
-check(snapshots[ada].cards[1].cells[2].number == oldFirst, "repeated event requests cannot grant extra swaps")
-request(ben, "Keep")
-check(snapshots[ben].swapped and snapshots[ben].participated, "keeping the layout confirms a valid event decision")
-local before = snapshots[ada].pesos
+check(#snapshots[late].bonuses[1].cells == 0, "mid-round joins wait for fresh bonus cards")
 request(ada, "Reward", 999999)
 request(ada, "Cosmetic", { id = "marker_berry", price = -999 })
-check(snapshots[ada].pesos == before and not snapshots[ada].owned.marker_berry, "fabricated rewards and purchase prices are ignored")
+request(ada, "BonusResult", "crazy", math.huge)
+check(snapshots[ada].pesos == 0 and not snapshots[ada].owned.marker_berry, "forged rewards, multipliers and prices have no effect")
+request(ada, "Setting", "musicVolume", 0.2)
+check(snapshots[ada].settings.musicVolume == 0.2, "valid music settings persist on server")
+request(ada, "Setting", "musicVolume", 0/0)
+request(ada, "Setting", "sfxVolume", math.huge)
+check(snapshots[ada].settings.musicVolume == 0.2 and snapshots[ada].settings.sfxVolume == 0.7, "invalid volume values cannot corrupt saves")
 untilPhase("Results")
-local result = snapshots[ada]
-check(result.pesos == result.summary.total and result.pesos >= 20 and result.pesos <= 60,
-	"server settlement grants only the disclosed earned rewards")
-request(ada, "Mark", 1, 1)
-request(ada, "Keep")
+local result, seen = snapshots[ada], {}
+check(#result.history == 20, "main round draws exactly twenty balls")
+for index, number in ipairs(result.history) do
+	assert(number >= 1 and number <= 60 and not seen[number])
+	assert(snapshots[ben].history[index] == number)
+	seen[number] = true
+end
+check(true, "all twenty draws are unique, bounded, and identical for both clients")
+for _, target in ipairs({ ada, ben }) do
+	for _, card in ipairs(snapshots[target].bonuses) do
+		local matched = 0
+		for _, cell in ipairs(card.cells) do if seen[cell.number] then matched += 1 end end
+		assert(card.progress == matched and card.qualified == (#card.cells > 0 and matched == #card.cells))
+	end
+end
+check(true, "each player's qualification is computed from their own card")
+check(result.pesos == 20 and result.summary.bonusPending, "only existing participation reward is paid while bonus rules are pending")
+request(ada, "Participate")
 request(ada, "Reward", 9999)
-check(snapshots[ada].pesos == result.pesos, "post-round actions cannot duplicate rewards")
+check(snapshots[ada].pesos == 20, "repeated/post-round actions cannot duplicate rewards")
 untilPhase("Intermission")
-check(#snapshots[late].cards == 2, "spectators receive their two free cards next round")
-request(ada, "Goal", "trail")
+check(#snapshots[late].bonuses[1].cells == 3 and #snapshots[ada].history == 0, "reset deals fresh free cards to late joiners and clears draw history")
+request(ada, "Participate")
 untilPhase("Drawing")
 local coins = savedProfiles[ada].data.pesos
 players.PlayerRemoving:Fire(ada)
 ada.Parent = nil
 for index, entry in ipairs(playersList) do if entry == ada then table.remove(playersList, index); break end end
 advance(0.01)
-check(savedProfiles[ada].data.pesos == coins + 20 and savedProfiles[ada].closing,
-	"leaving settles eligible participation and closes the profile once")
+check(savedProfiles[ada].data.pesos == coins + 20 and savedProfiles[ada].closing, "leaving settles existing participation before closing the save")
 taskMock.spawn(shutdown)
 advance(0.2)
-check(savedProfiles[ben].closing and savedProfiles[late].closing, "server shutdown closes every remaining profile")
-
+check(savedProfiles[ben].closing and savedProfiles[late].closing, "shutdown closes every remaining profile")
 print("Server protocol: " .. passed .. " checks passed (mock Roblox services)")

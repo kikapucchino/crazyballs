@@ -1,6 +1,8 @@
 local Rules = require("../src/shared/GameRules")
 local Economy = require("../src/shared/Economy")
 local Config = require("../src/shared/Config")
+local Bonus = require("../src/shared/BonusRules")
+local Exact = require("../src/shared/ExactInteger")
 local passed = 0
 local function test(name, callback)
 	local ok, message = pcall(callback)
@@ -10,132 +12,116 @@ local function test(name, callback)
 end
 math.randomseed(7313)
 local function random(low, high) return math.random(low, high) end
-local function board()
-	local state = Rules.newCardState(24, random)
-	state.cards = { { 1, 2, 3, 4, 5, 6, 7, 8, 9 }, { 1, 10, 11, 12, 13, 14, 15, 16, 17 } }
-	return state
-end
 
-test("500 decks contain every number exactly once; cards have valid unique numbers and overlap", function()
-	for _ = 1, 500 do
-		local deck = Rules.shuffle(24, random)
-		local seen = {}
-		assert(#deck == 24)
-		for _, number in ipairs(deck) do
-			assert(Rules.isIndex(number, 24) and not seen[number])
-			seen[number] = true
-		end
-		local state = Rules.newCardState(24, random)
-		local first, common = {}, false
-		for index, card in ipairs(state.cards) do
-			local unique = {}
-			assert(#card == 9)
-			for _, number in ipairs(card) do
-				assert(Rules.isIndex(number, 24) and not unique[number])
-				unique[number] = true
-				if index == 1 then first[number] = true elseif first[number] then common = true end
-			end
-		end
-		assert(common)
+test("1000 fresh pools contain 60 unique values and expose exactly 20 unique draws", function()
+	for _ = 1, 1000 do
+		local deck, seen = Rules.shuffle(Config.NumberPool, random), {}
+		assert(#deck == 60 and Config.DrawCount == 20)
+		for _, value in ipairs(deck) do assert(Rules.isIndex(value, 60) and not seen[value]); seen[value] = true end
+		local draws = { table.unpack(deck, 1, Config.DrawCount) }
+		assert(#draws == 20)
 	end
 end)
-
-test("undrawn, duplicate, out-of-range and malformed marks are rejected", function()
-	local state = board()
+test("bonus cards use distinct 1–60 numbers and preserve every requested name/count", function()
+	for _ = 1, 100 do
+		local state = Rules.newCardState(Config, random)
+		assert(#state.cards == 0)
+		for _, definition in ipairs(Config.Bonuses) do
+			local seen, card = {}, state.bonuses[definition.id]
+			assert(#card.numbers == definition.count)
+			for _, value in ipairs(card.numbers) do assert(Rules.isIndex(value, 60) and not seen[value]); seen[value] = true end
+		end
+	end
+	assert(Config.Bonuses[1].name == "Coin flip" and Config.Bonuses[2].name == "Duck hunt")
+	assert(Config.Bonuses[3].name == "Pačinki" and Config.Bonuses[4].name == "Go CRazy")
+end)
+test("multiple bonus types qualify independently and a pending wheel never auto-qualifies", function()
+	local state, drawn = Rules.newCardState(Config, random), {}
+	for _, card in pairs(state.bonuses) do for _, number in ipairs(card.numbers) do drawn[number] = true end end
+	assert(#Rules.qualify(state, drawn) == 3)
+	assert(not state.bonuses.crazy.qualified)
+	assert(#Rules.qualify(state, drawn) == 0)
+end)
+test("qualification depends on individual cards, never on another player's success", function()
+	local a, b = Rules.newCardState(Config, random), Rules.newCardState(Config, random)
+	a.bonuses.coin.numbers, b.bonuses.coin.numbers = {1,2,3}, {4,5,6}
+	Rules.qualify(a, { [1] = true, [2] = true, [3] = true })
+	Rules.qualify(b, { [1] = true, [2] = true, [3] = true })
+	assert(a.bonuses.coin.qualified and not b.bonuses.coin.qualified)
+end)
+test("configured main cards are 5x5, marking rejects forged/undrawn cells", function()
+	local configuration = table.clone(Config)
+	configuration.Main = { Confirmed = true, Count = 2, FreeCenter = true }
+	local state = Rules.newCardState(configuration, random)
+	assert(#state.cards == 2 and #state.cards[1] == 25 and state.cards[1][13] == 0 and state.marks[1][0])
 	assert(not Rules.mark(state, {}, 1, 1))
-	for _, bad in ipairs({ 0, -1, 10, math.huge, 0 / 0, "1", {}, true, 1.5 }) do
-		assert(not Rules.mark(state, { [1] = true }, 1, bad))
-		assert(not Rules.mark(state, { [1] = true }, bad, 1))
+	local drawn = { [state.cards[1][1]] = true }
+	for _, bad in ipairs({0, -1, 26, 1.5, math.huge, 0/0, "1", {}}) do
+		assert(not Rules.mark(state, drawn, 1, bad))
+		assert(not Rules.mark(state, drawn, bad, 1))
 	end
-	assert(not Rules.mark(state, { [1] = true }, nil, 1))
-	assert(Rules.mark(state, { [1] = true }, 1, 1))
-	assert(not Rules.mark(state, { [1] = true }, 1, 1))
-end)
-
-test("only complete horizontal rows claim; each card pays at most once", function()
-	local state = board()
-	local drawn = { [1] = true, [4] = true, [7] = true }
-	Rules.markAll(state, drawn)
-	assert(Rules.claimPatterns(state) == 0)
-	drawn[2], drawn[3] = true, true
-	Rules.markAll(state, drawn)
-	assert(Rules.claimPatterns(state) == 1)
-	assert(Rules.claimPatterns(state) == 0)
-	drawn[10], drawn[11] = true, true
-	Rules.markAll(state, drawn)
-	assert(Rules.claimPatterns(state) == 1)
-	assert(Rules.claimPatterns(state) == 0)
-end)
-
-test("tailwind moves marks with their numbers and can complete a row", function()
-	local state = board()
-	Rules.markAll(state, { [1] = true, [2] = true, [4] = true })
-	assert(Rules.claimPatterns(state) == 0)
-	assert(Rules.swap(state, 1, 3, 4))
-	assert(state.cards[1][3] == 4 and state.marks[1][4])
-	assert(not state.marks[1][3])
-	assert(Rules.claimPatterns(state) == 1)
-	assert(not Rules.swap(state, 2, 1, 2))
-end)
-
-test("illegal swaps cannot consume a player's event choice", function()
-	local state = board()
-	assert(not Rules.swap(state, 1, 1, 1))
-	assert(not Rules.swap(state, 3, 1, 2))
-	assert(not Rules.swap(state, 1, 0 / 0, 2))
-	assert(not Rules.swap(state, 1, 1, "2"))
-	assert(not state.swapped and not state.participated)
-end)
-
-test("number trail counts distinct marked numbers across both cards", function()
-	local state = board()
-	Rules.markAll(state, { [1] = true })
-	assert(Rules.goalProgress(state) == 1)
-	Rules.markAll(state, { [2] = true, [3] = true, [4] = true, [10] = true, [11] = true })
-	local value, target = Rules.goalProgress(state)
-	assert(value == 5 and target == 5)
-end)
-
-test("double delivery needs a marked copy on both cards", function()
-	local state = board()
-	state.goal = "twins"
-	Rules.mark(state, { [1] = true }, 1, 1)
-	assert(Rules.goalProgress(state) == 0)
-	Rules.mark(state, { [1] = true }, 2, 1)
-	assert(Rules.goalProgress(state) == 1)
-end)
-
-test("automatic marking catches previous draws but requires a participation choice", function()
-	local state = board()
-	local drawn = {}
-	for number = 1, 24 do drawn[number] = true end
-	Rules.markAll(state, drawn)
-	Rules.claimPatterns(state)
-	assert(not state.participated)
-	assert(Rules.settle(state, Config.Rewards).total == 0)
-end)
-
-test("settlement awards exact rewards once; settled cards reject changes", function()
-	local state = board()
-	state.participated = true
-	local drawn = {}
-	for number = 1, 24 do drawn[number] = true end
-	Rules.markAll(state, drawn)
-	Rules.claimPatterns(state)
-	local result = Rules.settle(state, Config.Rewards)
-	assert(result.total == 60 and result.participation == 20 and result.patterns == 30 and result.objective == 10)
-	assert(Rules.settle(state, Config.Rewards) == nil)
+	assert(Rules.mark(state, drawn, 1, 1))
 	assert(not Rules.mark(state, drawn, 1, 1))
-	assert(not Rules.swap(state, 1, 1, 2))
 end)
-
-test("participation remains rewarding with no completed pattern", function()
-	local state = board()
-	Rules.mark(state, { [1] = true }, 1, 1)
-	local result = Rules.settle(state, Config.Rewards)
-	assert(result.total == 20 and result.patterns == 0 and result.objective == 0)
+test("participation settles once; changing settings/automatic marks cannot farm it", function()
+	local state = Rules.newCardState(Config, random)
+	Rules.markAll(state, { [1] = true })
+	assert(Rules.settle(state, Config.Rewards).total == 0)
+	assert(Rules.settle(state, Config.Rewards) == nil)
+	state = Rules.newCardState(Config, random)
+	state.participated = true
+	assert(Rules.settle(state, Config.Rewards).total == 20)
+	assert(Rules.settle(state, Config.Rewards) == nil)
 end)
-
+test("multiplier validators preserve signed bounds and reject invalid distributions", function()
+	for index = 1, 3 do
+		local definition = Config.Bonuses[index]
+		assert(Bonus.validate(definition, {{multiplier=definition.minimum,weight=1},{multiplier=definition.maximum,weight=1}}))
+		for _, invalid in ipairs({ definition.minimum - 1, definition.maximum + 1, math.huge, 0/0, "20", 1.5 }) do
+			assert(not Bonus.validate(definition, {{multiplier=invalid,weight=1},{multiplier=1,weight=1}}))
+		end
+		assert(not Bonus.validate(definition, {{multiplier=1,weight=0},{multiplier=1,weight=1}}))
+	end
+	assert(not Bonus.validate(Config.Bonuses[4], {{multiplier=1,weight=1}}))
+	assert(not Config.BonusPayoutsEnabled)
+end)
+test("weighted selection maps exact roll boundaries to their disclosed outcomes", function()
+	local distribution = {{multiplier=-3,weight=2},{multiplier=20,weight=3}}
+	for roll = 1, 5 do
+		local selected = Bonus.choose(Config.Bonuses[1], distribution, function(low, high) assert(low == 1 and high == 5); return roll end)
+		assert(selected == (if roll <= 2 then 1 else 2))
+	end
+end)
+test("shared coin results stay identical and duplicate receipts cannot award twice", function()
+	local ledger, definition = Bonus.newLedger(), Config.Bonuses[1]
+	local outcomes = {{multiplier=-5,weight=1},{multiplier=20,weight=1}}
+	local first, awarded = Bonus.resolve(ledger, 1, definition, outcomes, true, nil, function() return 2 end, Exact, 20)
+	assert(awarded and first.pesos == "400")
+	local second = Bonus.resolve(ledger, 2, definition, outcomes, true, nil, function() error("must reuse common result") end, Exact, 20)
+	assert(second.multiplier == first.multiplier)
+	local duplicate, isNew = Bonus.resolve(ledger, 1, definition, outcomes, true, nil, random, Exact, 20)
+	assert(duplicate == first and not isNew)
+	assert(Bonus.resolve(ledger, 3, definition, outcomes, false, nil, random, Exact, 20) == nil)
+end)
+test("Duck timeout/disconnect fallback picks once and preserves signed multiplier", function()
+	local ledger, definition = Bonus.newLedger(), Config.Bonuses[2]
+	local outcomes = {{multiplier=-100,weight=1},{multiplier=100,weight=1}}
+	local automatic = Bonus.resolve(ledger, 1, definition, outcomes, true, nil, function() return 1 end, Exact, 20)
+	assert(automatic.pesos == "-2000")
+	local lateChoice, isNew = Bonus.resolve(ledger, 1, definition, outcomes, true, 2, random, Exact, 20)
+	assert(lateChoice == automatic and not isNew)
+	assert(Bonus.resolve(ledger, 2, definition, outcomes, true, 9, random, Exact, 20) == nil)
+end)
+test("exact signed payouts exceed floating-point precision without rounding or overflow", function()
+	assert(Exact.multiplySmall("1", 20) == "20")
+	assert(Exact.multiplySmall("5", 20) == "100")
+	assert(Exact.multiplySmall("20", 20) == "400")
+	assert(Exact.multiplySmall("-999999999999999999999999999999", 20) == "-19999999999999999999999999999980")
+	assert(Exact.normalize("-0000") == "0" and Exact.format("1234567") == "1,234,567")
+	assert(Exact.format("-123456789012345678901") == "−1.234e+20")
+	for _, invalid in ipairs({"inf", "NaN", "3.2", "1e200", string.rep("9", 1025)}) do assert(not pcall(Exact.normalize, invalid)) end
+	assert(not pcall(Exact.multiplySmall, string.rep("9", 1024), 20))
+end)
 test("cosmetics require exact server catalog prices; repeats only equip", function()
 	local profile = Economy.defaults()
 	assert(not Economy.purchase(profile, Config.Catalog, "marker_berry"))
@@ -164,22 +150,9 @@ test("profile normalization strips unknown ownership and invalid balances", func
 	assert(normalized.pesos == 99 and normalized.equipped.card == "card_sea")
 end)
 
-test("random rounds never exceed the disclosed reward cap", function()
-	for _ = 1, 500 do
-		local state = Rules.newCardState(24, random)
-		state.participated = true
-		state.goal = if random(0, 1) == 0 then "trail" else "twins"
-		local deck, drawn = Rules.shuffle(24, random), {}
-		for index = 1, 18 do
-			drawn[deck[index]] = true
-			Rules.markAll(state, drawn)
-			if index == 8 then Rules.swap(state, random(1, 2), 1, 9) end
-			Rules.claimPatterns(state)
-		end
-		local result = Rules.settle(state, Config.Rewards)
-		assert(result.total >= 20 and result.total <= 60)
-		assert(result.total % 5 == 0)
-	end
+test("saved volume settings migrate old profiles and sanitize nonfinite inputs", function()
+	local profile = Economy.normalize({ settings = { musicVolume = 0/0, sfxVolume = 0.25 } }, Config.Catalog)
+	assert(profile.settings.musicVolume == 0.5 and profile.settings.sfxVolume == 0.25)
+	assert(Economy.normalize({}, Config.Catalog).settings.musicVolume == 0.5)
 end)
-
-print("Rules and economy: " .. passed .. " tests passed")
+print("Rules/economy: " .. passed .. " tests passed")

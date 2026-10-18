@@ -1,497 +1,283 @@
--- The ScreenGui and startup message are packaged in StarterGui, so they appear
--- even before dependencies replicate or if initialization fails.
+-- Compact HUD. Roblox owns the avatar, camera, chat, movement and backpack controls.
 local gui = script.Parent
-local startup = gui:WaitForChild("StartupStatus", 10)
-if not startup then
-	warn("Cloudpop: the packaged StartupStatus is missing. Open the complete place file.")
-	return
-end
-startup.Text = "CLOUDPOP COMMONS · build 0.1.3\nClient started. Connecting to the workshop…"
-
+local status = gui:FindFirstChild("StartupStatus")
+if status then status.Text = "Opening Cloudpop…" end
 local function initialize()
-local function dependency(parent, name)
-	startup.Text = "CLOUDPOP COMMONS · build 0.1.3\nLoading " .. name .. "…"
-	local child = parent:WaitForChild(name, 15)
-	if not child then error("Timed out waiting for " .. parent:GetFullName() .. "." .. name, 0) end
-	return child
-end
-
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local SoundService = game:GetService("SoundService")
-local player = Players.LocalPlayer
-local Shared = dependency(ReplicatedStorage, "Cloudpop")
-local Config = require(dependency(Shared, "Config"))
-local Economy = require(dependency(Shared, "Economy"))
-local remotes = dependency(Shared, "Remotes")
-local action = dependency(remotes, "Action")
-local stateEvent = dependency(remotes, "State")
-startup.Text = "CLOUDPOP COMMONS · build 0.1.3\nBuilding your cards…"
-
-local C = {
-	ink = Color3.fromRGB(30, 71, 75), muted = Color3.fromRGB(87, 119, 119),
-	background = Color3.fromRGB(225, 239, 229), cream = Color3.fromRGB(255, 248, 232),
-	white = Color3.fromRGB(255, 253, 246), teal = Color3.fromRGB(40, 112, 116),
-	mint = Color3.fromRGB(197, 232, 215), yellow = Color3.fromRGB(255, 199, 88),
-	line = Color3.fromRGB(199, 217, 205), pink = Color3.fromRGB(243, 178, 191),
-}
-local current, swapSelection = nil, {}
-local swapMode, soundOn = false, true
-local activeTab = "Play"
-local render
-
-local function create(className, properties, parent)
-	local object = Instance.new(className)
-	for key, value in pairs(properties) do object[key] = value end
-	object.Parent = parent
-	return object
-end
-
-local function corner(parent, radius)
-	create("UICorner", { CornerRadius = UDim.new(0, radius or 14) }, parent)
-end
-
-local function label(parent, text, size, position, dimensions, color)
-	return create("TextLabel", {
-		BackgroundTransparency = 1, Text = text, TextSize = size or 16,
-		Font = Enum.Font.GothamMedium, TextColor3 = color or C.ink,
-		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center,
-		TextWrapped = true, Position = position or UDim2.new(), Size = dimensions or UDim2.fromScale(1, 1),
-	}, parent)
-end
-
-local function button(parent, text, position, dimensions, callback, background)
-	local object = create("TextButton", {
-		Text = text, Position = position, Size = dimensions,
-		BackgroundColor3 = background or C.teal, TextColor3 = C.white,
-		BorderSizePixel = 0, TextSize = 15, Font = Enum.Font.GothamBold,
-		TextWrapped = true, AutoButtonColor = true,
-	}, parent)
-	corner(object, 12)
-	object.Activated:Connect(callback)
-	return object
-end
-
-local function panel(parent, name, height, order, color)
-	local frame = create("Frame", { Name = name, BackgroundColor3 = color or C.cream,
-		BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, height), LayoutOrder = order }, parent)
-	corner(frame, 18)
-	return frame
-end
-
-local function fire(name, a, b, c)
-	if current then action:FireServer(name, a, b, c, current.roundId) end
-end
-
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-local background = create("Frame", { Name = "Background", Size = UDim2.fromScale(1, 1),
-	BackgroundColor3 = C.background, BorderSizePixel = 0 }, gui)
-create("UIGradient", { Rotation = 35, Color = ColorSequence.new(C.background, Color3.fromRGB(210, 230, 230)) }, background)
-local scroll = create("ScrollingFrame", { Name = "Page", AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(1, -24, 1, 0),
-	BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
-	ScrollBarImageColor3 = C.teal, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
-	ScrollingDirection = Enum.ScrollingDirection.Y }, background)
-create("UISizeConstraint", { MaxSize = Vector2.new(840, math.huge) }, scroll)
-create("UIPadding", { PaddingTop = UDim.new(0, 14), PaddingBottom = UDim.new(0, 26) }, scroll)
-create("UIListLayout", { Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder }, scroll)
-
-local header = panel(scroll, "Header", 66, 1)
-header.BackgroundTransparency = 1
-local title = label(header, "CLOUDPOP", 26, UDim2.fromOffset(0, 0), UDim2.new(1, -142, 0, 32))
-title.Font = Enum.Font.GothamBlack
-label(header, "C O M M O N S  /  sky workshop", 11, UDim2.fromOffset(0, 31), UDim2.new(1, -135, 0, 28), C.muted)
-local wallet = label(header, "0 Pesos", 21, UDim2.new(1, -132, 0, 0), UDim2.fromOffset(132, 32))
-wallet.TextXAlignment = Enum.TextXAlignment.Right
-wallet.Font = Enum.Font.GothamBold
-local saving = label(header, "Connecting…", 11, UDim2.new(1, -145, 0, 29), UDim2.fromOffset(145, 30), C.muted)
-saving.TextXAlignment = Enum.TextXAlignment.Right
-
-local tabs = panel(scroll, "Tabs", 46, 2)
-tabs.BackgroundTransparency = 1
-local playTab, shopTab
-local play = create("Frame", { Name = "Play", Size = UDim2.new(1, 0, 0, 0),
-	AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 3 }, scroll)
-create("UIListLayout", { Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder }, play)
-local shop = create("Frame", { Name = "Wardrobe", Size = UDim2.new(1, 0, 0, 0),
-	AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 4, Visible = false }, scroll)
-create("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, shop)
-local function tab(name)
-	activeTab = name
-	play.Visible = name == "Play"
-	shop.Visible = name == "Wardrobe"
-	playTab.BackgroundColor3 = if play.Visible then C.teal else C.muted
-	shopTab.BackgroundColor3 = if shop.Visible then C.teal else C.muted
-end
-playTab = button(tabs, "Play together", UDim2.new(), UDim2.new(0.5, -5, 1, 0), function() tab("Play") end)
-shopTab = button(tabs, "Cosmetic wardrobe", UDim2.new(0.5, 5, 0, 0), UDim2.new(0.5, -5, 1, 0), function() tab("Wardrobe") end, C.muted)
-
-local hero = panel(play, "AirMachine", 184, 1, C.teal)
-local phaseLabel = label(hero, "WELCOME ABOARD", 12, UDim2.fromOffset(16, 12), UDim2.new(0.6, -20, 0, 24), C.mint)
-phaseLabel.Font = Enum.Font.GothamBold
-local ballNumber = label(hero, "?", 58, UDim2.fromOffset(14, 43), UDim2.fromOffset(86, 82), C.yellow)
-ballNumber.Font = Enum.Font.GothamBlack
-local latest = label(hero, "Pip is warming\nup the machine.", 14, UDim2.fromOffset(108, 43), UDim2.new(0.58, -115, 0, 82), C.white)
-local countdown = label(hero, "Preparing your cards…", 13, UDim2.fromOffset(16, 135), UDim2.new(0.61, -24, 0, 36), C.white)
-
--- A self-contained miniature air machine, rendered locally. Its balls never decide draws.
-local viewport = create("ViewportFrame", { Name = "MachineView", BackgroundTransparency = 1,
-	Position = UDim2.fromScale(0.6, 0.05), Size = UDim2.fromScale(0.39, 0.88),
-	Ambient = Color3.fromRGB(210, 220, 223), LightColor = Color3.fromRGB(255, 239, 210),
-	LightDirection = Vector3.new(-1, -1, -2) }, hero)
-local world = create("WorldModel", { Name = "Display" }, viewport)
-local camera = create("Camera", { CFrame = CFrame.lookAt(Vector3.new(0, 3, 15), Vector3.new(0, 0, 0)), FieldOfView = 34 }, viewport)
-viewport.CurrentCamera = camera
-local function displayPart(name, size, position, color, shape)
-	return create("Part", { Name = name, Anchored = true, CanCollide = false, Size = size,
-		Position = position, Color = color, Shape = shape or Enum.PartType.Block,
-		Material = Enum.Material.SmoothPlastic, TopSurface = Enum.SurfaceType.Smooth,
-		BottomSurface = Enum.SurfaceType.Smooth }, world)
-end
-displayPart("Stand", Vector3.new(5, 0.8, 3.5), Vector3.new(0, -2.7, 0), C.mint)
-displayPart("Housing", Vector3.new(3.7, 1, 2.4), Vector3.new(0, -2, 0), C.yellow)
-displayPart("Cap", Vector3.new(4.5, 0.5, 2.8), Vector3.new(0, 2.5, 0), C.pink)
-for _, x in ipairs({ -2.1, 2.1 }) do
-	displayPart("BrassSupport", Vector3.new(0.18, 4.2, 0.18), Vector3.new(x, 0.15, 0), C.yellow)
-end
-local chamber = displayPart("Chamber", Vector3.new(4.1, 4.1, 3.3), Vector3.new(0, 0.2, 0), C.white, Enum.PartType.Ball)
-chamber.Transparency = 0.86
-local animatedBalls = {}
-for index = 1, 10 do
-	animatedBalls[index] = displayPart("Ball" .. index, Vector3.new(0.7, 0.7, 0.7),
-		Vector3.new(math.sin(index) * 1.5, math.cos(index) * 1.3, 0),
-		({ C.yellow, C.pink, C.mint, C.white })[index % 4 + 1], Enum.PartType.Ball)
-end
-
-local instructionPanel = panel(play, "PipTip", 78, 2, C.mint)
-label(instructionPanel, "PIP'S POST", 11, UDim2.fromOffset(14, 6), UDim2.new(1, -28, 0, 20), C.teal).Font = Enum.Font.GothamBold
-local instruction = label(instructionPanel, "Two free cards. One shared draw. Finish any horizontal row!", 14,
-	UDim2.fromOffset(14, 27), UDim2.new(1, -28, 0, 44))
-
-local goalPanel = panel(play, "Objective", 132, 3)
-local goalTitle = label(goalPanel, "Choose a delivery • either earns +10 Pesos", 14, UDim2.fromOffset(12, 6), UDim2.new(1, -24, 0, 36))
-local trail = button(goalPanel, "Number trail\nMark 5 different numbers", UDim2.fromOffset(10, 49), UDim2.new(0.5, -15, 0, 72), function() fire("Goal", "trail") end)
-local twins = button(goalPanel, "Double delivery\nSame number on both cards", UDim2.new(0.5, 5, 0, 49), UDim2.new(0.5, -15, 0, 72), function() fire("Goal", "twins") end)
-local goalProgress = label(goalPanel, "", 14, UDim2.fromOffset(12, 42), UDim2.new(1, -24, 0, 32))
-
-local eventPanel = panel(play, "TailwindSwitch", 176, 4, C.yellow)
-eventPanel.Visible = false
-label(eventPanel, "TAILWIND SWITCH", 17, UDim2.fromOffset(12, 8), UDim2.new(1, -24, 0, 28)).Font = Enum.Font.GothamBold
-local eventText = label(eventPanel, "Swap any two cells on ONE card, or keep your layout. Marks travel with numbers.", 13,
-	UDim2.fromOffset(12, 39), UDim2.new(1, -24, 0, 57))
-local swapButton = button(eventPanel, "Preview a swap", UDim2.fromOffset(10, 110), UDim2.new(0.5, -15, 0, 52), function()
-	if not current or current.swapped then return end
-	if #swapSelection == 2 then
-		fire("Swap", swapSelection[1].card, swapSelection[1].cell, swapSelection[2].cell)
-		swapMode, swapSelection = false, {}
-	else
-		swapMode = not swapMode
-		swapSelection = {}
+	local Players = game:GetService("Players")
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local RunService = game:GetService("RunService")
+	local function waitFor(parent, name)
+		local child = parent:WaitForChild(name, 15)
+		assert(child, "Timed out waiting for " .. parent:GetFullName() .. "." .. name)
+		return child
 	end
-	if render then render() end
-end)
-local keepButton = button(eventPanel, "Keep layout", UDim2.new(0.5, 5, 0, 110), UDim2.new(0.5, -15, 0, 52), function()
-	if swapMode then
-		swapMode, swapSelection = false, {}
+	local shared = waitFor(ReplicatedStorage, "Cloudpop")
+	local Config = require(waitFor(shared, "Config"))
+	local Economy = require(waitFor(shared, "Economy"))
+	local audio = require(waitFor(gui, "AudioController")).new(Config.Audio)
+	local effects = require(waitFor(gui, "WorldEffects")).new()
+	local remotes = waitFor(shared, "Remotes")
+	local action, stateEvent = waitFor(remotes, "Action"), waitFor(remotes, "State")
+	local colors = {
+		navy = Color3.fromRGB(16, 30, 53), panel = Color3.fromRGB(24, 47, 78), blue = Color3.fromRGB(47, 84, 125),
+		ice = Color3.fromRGB(226, 242, 255), muted = Color3.fromRGB(164, 190, 215), cyan = Color3.fromRGB(99, 222, 240),
+	}
+	local function make(class, name, parent, properties)
+		local object = Instance.new(class)
+		object.Name = name
+		for key, value in pairs(properties or {}) do object[key] = value end
+		object.Parent = parent
+		return object
+	end
+	local function round(object, radius)
+		make("UICorner", "Corners", object, { CornerRadius = UDim.new(0, radius or 10) })
+	end
+	local function frame(name, parent, size, position)
+		local object = make("Frame", name, parent, { Size = size, Position = position or UDim2.fromOffset(0, 0), BackgroundColor3 = colors.panel, BorderSizePixel = 0 })
+		round(object)
+		return object
+	end
+	local function label(name, parent, text, size, position, fontSize)
+		return make("TextLabel", name, parent, { Text = text, Size = size, Position = position, BackgroundTransparency = 1,
+			TextColor3 = colors.ice, TextSize = fontSize or 16, Font = Enum.Font.GothamMedium, TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left })
+	end
+	local function button(name, parent, text, size, position, callback)
+		local object = make("TextButton", name, parent, { Text = text, Size = size, Position = position,
+			BackgroundColor3 = colors.blue, TextColor3 = colors.ice, TextSize = 14, Font = Enum.Font.GothamBold,
+			BorderSizePixel = 0, AutoButtonColor = true })
+		round(object, 8)
+		object.Activated:Connect(callback)
+		return object
+	end
+	local state, page, cardIndex, isOpen = nil, "Main", 1, false
+	local previousRound, previousCount, previousQualified = nil, 0, {}
+	local function request(name, a, b, c)
+		action:FireServer(name, a, b, c, if state then state.roundId else 0)
+	end
+	local hud = frame("HUD", gui, UDim2.fromOffset(330, 116), UDim2.new(0.5, 0, 0, 10))
+	hud.AnchorPoint = Vector2.new(0.5, 0)
+	local ball = label("CurrentBall", hud, "—", UDim2.fromOffset(62, 62), UDim2.fromOffset(12, 8), 34)
+	ball.TextXAlignment, ball.Font = Enum.TextXAlignment.Center, Enum.Font.GothamBold
+	local counter = label("DrawCount", hud, "0 / 20", UDim2.new(1, -94, 0, 23), UDim2.fromOffset(86, 10), 18)
+	local balance = label("Pesos", hud, "0 Pesos", UDim2.new(1, -94, 0, 22), UDim2.fromOffset(86, 34), 14)
+	local history = label("RecentBalls", hud, "Waiting for the first ball", UDim2.new(1, -24, 0, 20), UDim2.fromOffset(12, 70), 13)
+	local phaseText = label("Phase", hud, "Connecting…", UDim2.new(1, -24, 0, 18), UDim2.fromOffset(12, 92), 12)
+	phaseText.TextColor3 = colors.muted
+	local toast = label("Notice", gui, "", UDim2.fromOffset(330, 44), UDim2.new(1, -12, 0, 134), 14)
+	toast.AnchorPoint, toast.BackgroundColor3, toast.BackgroundTransparency = Vector2.new(1, 0), colors.navy, 0.1
+	toast.Visible = false
+	round(toast)
+	local noticeUntil = 0
+	local function notify(text)
+		toast.Text, toast.Visible = text, true
+		noticeUntil = workspace:GetServerTimeNow() + 6
+	end
+	local panel = frame("CardPanel", gui, UDim2.fromOffset(330, 438), UDim2.new(1, -12, 0, 144))
+	panel.AnchorPoint, panel.Visible = Vector2.new(1, 0), false
+	label("PanelTitle", panel, "YOUR CARDS", UDim2.new(1, -68, 0, 36), UDim2.fromOffset(12, 4), 16)
+	local tabs = {}
+	local body = make("ScrollingFrame", "PanelBody", panel, { Position = UDim2.fromOffset(10, 96), Size = UDim2.new(1, -20, 1, -106),
+		BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4, ScrollingDirection = Enum.ScrollingDirection.Y,
+		CanvasSize = UDim2.fromOffset(0, 360) })
+	local pages = {}
+	for _, name in ipairs({ "Main", "Bonuses", "Looks", "Settings" }) do
+		pages[name] = make("Frame", name, body, { Size = UDim2.new(1, -6, 0, 500), BackgroundTransparency = 1, Visible = name == page })
+	end
+	local render, resize
+	local function open(nextPage)
+		page = nextPage or page
+		isOpen, panel.Visible = true, true
+		request("Participate")
 		if render then render() end
-	else
-		fire("Keep")
 	end
-end, C.muted)
-
-local cardsFrame = panel(play, "Cards", 280, 5)
-cardsFrame.BackgroundTransparency = 1
-local cardLayout = create("UIGridLayout", { CellPadding = UDim2.fromOffset(12, 12), SortOrder = Enum.SortOrder.LayoutOrder }, cardsFrame)
-local cardPanels, cardTitles, cells, cellStrokes, cellIndicators, cardGrids = {}, {}, {}, {}, {}, {}
-for cardIndex = 1, 2 do
-	local card = panel(cardsFrame, "Card" .. cardIndex, 260, cardIndex)
-	cardPanels[cardIndex] = card
-	cardTitles[cardIndex] = label(card, "DELIVERY " .. (if cardIndex == 1 then "A" else "B"), 12,
-		UDim2.fromOffset(9, 4), UDim2.new(1, -18, 0, 34), C.muted)
-	cardTitles[cardIndex].Font = Enum.Font.GothamBold
-	local grid = create("Frame", { Name = "Numbers", BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(8, 42), Size = UDim2.new(1, -16, 1, -50) }, card)
-	cardGrids[cardIndex] = create("UIGridLayout", { CellPadding = UDim2.fromOffset(6, 6),
-		SortOrder = Enum.SortOrder.LayoutOrder, FillDirectionMaxCells = 3 }, grid)
-	cells[cardIndex], cellStrokes[cardIndex], cellIndicators[cardIndex] = {}, {}, {}
-	for cellIndex = 1, 9 do
-		local cell = button(grid, "—", UDim2.new(), UDim2.fromOffset(50, 50), function()
-			if not current or not current.cards[cardIndex] then return end
-			if swapMode and current.phase == "Event" and not current.swapped then
-				if #swapSelection == 0 or swapSelection[1].card ~= cardIndex then
-					swapSelection = { { card = cardIndex, cell = cellIndex } }
-				elseif swapSelection[1].cell == cellIndex then
-					swapSelection = {}
-				else
-					swapSelection[2] = { card = cardIndex, cell = cellIndex }
-				end
-				if render then render() end
-			else
-				fire("Mark", cardIndex, cellIndex)
-			end
-		end, C.white)
-		cell.Name = "Cell" .. cellIndex
-		cell.LayoutOrder = cellIndex
-		cell.TextColor3 = C.ink
-		cell.Font = Enum.Font.GothamBold
-		cell.TextSize = 23
-		cells[cardIndex][cellIndex] = cell
-		cellIndicators[cardIndex][cellIndex] = label(cell, "", 13, UDim2.new(1, -17, 0, 1), UDim2.fromOffset(16, 17))
-		cellIndicators[cardIndex][cellIndex].TextXAlignment = Enum.TextXAlignment.Center
-		cellStrokes[cardIndex][cellIndex] = create("UIStroke", { Thickness = 2, Color = C.line,
-			ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, cell)
+	button("Close", panel, "×", UDim2.fromOffset(44, 36), UDim2.new(1, -50, 0, 4), function() isOpen, panel.Visible = false, false; if resize then resize() end end)
+	for index, name in ipairs({ "Main", "Bonuses", "Looks", "Settings" }) do
+		tabs[name] = button(name .. "Tab", panel, name, UDim2.new(0.25, -6, 0, 44), UDim2.new((index - 1) / 4, 4, 0, 44), function() open(name) end)
 	end
-end
-
-local function resizeCards()
-	local width = cardsFrame.AbsoluteSize.X
-	if width <= 0 then return end
-	local columns = if width < 350 then 1 else 2
-	local cardWidth = (width - (columns - 1) * 12) / columns
-	local cellSize = math.floor((cardWidth - 28) / 3)
-	local cardHeight = cellSize * 3 + 62
-	cardLayout.FillDirectionMaxCells = columns
-	cardLayout.CellSize = UDim2.fromOffset(math.floor(cardWidth), cardHeight)
-	cardsFrame.Size = UDim2.new(1, 0, 0, if columns == 1 then cardHeight * 2 + 12 else cardHeight)
-	for _, grid in ipairs(cardGrids) do grid.CellSize = UDim2.fromOffset(cellSize, cellSize) end
-end
-cardsFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(resizeCards)
-task.defer(resizeCards)
-
-local legend = panel(play, "Legend", 47, 6, C.mint)
-label(legend, "• = ready to mark     ✓ = stamped\nAny horizontal row completes that card.", 12,
-	UDim2.fromOffset(12, 2), UDim2.new(1, -24, 1, -4))
-
-local results = panel(play, "RoundResults", 118, 7, C.yellow)
-results.Visible = false
-local resultsTitle = label(results, "Delivery complete!", 22, UDim2.fromOffset(14, 9), UDim2.new(1, -28, 0, 34))
-resultsTitle.Font = Enum.Font.GothamBold
-local resultsDetail = label(results, "", 14, UDim2.fromOffset(14, 47), UDim2.new(1, -28, 0, 61))
-
-local historyPanel = panel(play, "History", 142, 8)
-label(historyPanel, "SHARED DRAW HISTORY", 12, UDim2.fromOffset(12, 7), UDim2.new(1, -24, 0, 29), C.muted).Font = Enum.Font.GothamBold
-local historyFrame = create("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 43),
-	Size = UDim2.new(1, -24, 0, 90) }, historyPanel)
-create("UIGridLayout", { CellSize = UDim2.new(0.125, -6, 0, 25), CellPadding = UDim2.fromOffset(6, 6),
-	FillDirectionMaxCells = 8, SortOrder = Enum.SortOrder.LayoutOrder }, historyFrame)
-local historyLabels = {}
-for number = 1, 24 do
-	local chip = label(historyFrame, tostring(number), 13)
-	chip.BackgroundTransparency = 0
-	chip.BackgroundColor3 = C.white
-	chip.TextXAlignment = Enum.TextXAlignment.Center
-	chip.LayoutOrder = number
-	corner(chip, 7)
-	historyLabels[number] = chip
-end
-
-local options = panel(play, "Accessibility", 106, 9)
-local autoButton = button(options, "Auto-mark: OFF", UDim2.fromOffset(8, 8), UDim2.new(0.5, -12, 0, 44), function()
-	if current then fire("Setting", "autoMark", not current.settings.autoMark) end
-end)
-local motionButton = button(options, "Motion: ON", UDim2.new(0.5, 4, 0, 8), UDim2.new(0.5, -12, 0, 44), function()
-	if current then fire("Setting", "reducedMotion", not current.settings.reducedMotion) end
-end, C.muted)
-local soundButton
-soundButton = button(options, "Sound: ON", UDim2.fromOffset(8, 59), UDim2.new(0.5, -12, 0, 39), function()
-	soundOn = not soundOn
-	soundButton.Text = if soundOn then "Sound: ON" else "Sound: OFF"
-end, C.muted)
-label(options, "Free accessibility options.\nNo speed bonus.", 11, UDim2.new(0.5, 6, 0, 60), UDim2.new(0.5, -14, 0, 37), C.muted)
-
-local shopIntro = panel(shop, "ShopIntro", 112, 1, C.mint)
-label(shopIntro, "MAKE YOURSELF AT HOME", 18, UDim2.fromOffset(14, 6), UDim2.new(1, -28, 0, 42)).Font = Enum.Font.GothamBold
-label(shopIntro, "Pick exactly what you love. These cosmetics change appearance only. All prices are earned Pesos.", 14,
-	UDim2.fromOffset(14, 48), UDim2.new(1, -28, 0, 55))
-local shopButtons = {}
-for index, item in ipairs(Config.Catalog) do
-	local row = panel(shop, item.id, 126, index + 1)
-	local swatch = create("Frame", { BackgroundColor3 = Color3.fromRGB(table.unpack(item.color)),
-		BorderSizePixel = 0, Position = UDim2.fromOffset(12, 16), Size = UDim2.fromOffset(48, 48) }, row)
-	corner(swatch, if item.category == "marker" then 24 else 10)
-	label(row, item.name, 16, UDim2.fromOffset(72, 7), UDim2.new(1, -82, 0, 30)).Font = Enum.Font.GothamBold
-	label(row, item.description, 12, UDim2.fromOffset(72, 35), UDim2.new(1, -82, 0, 30), C.muted)
-	shopButtons[item.id] = button(row, "Loading…", UDim2.new(1, -164, 1, -52), UDim2.fromOffset(152, 44), function()
-		fire("Cosmetic", item.id)
+	button("CardsButton", gui, "Cards", UDim2.fromOffset(106, 44), UDim2.new(0.5, 4, 1, -126), function()
+		if isOpen then isOpen, panel.Visible = false, false; if resize then resize() end else open() end
 	end)
-	label(row, string.upper(item.category), 10, UDim2.fromOffset(12, 76), UDim2.new(1, -188, 0, 24), C.muted)
-end
-
-local toast = label(background, "", 15, UDim2.new(0.5, 0, 1, -16), UDim2.new(1, -32, 0, 74), C.white)
-toast.Name = "Notice"
-toast.AnchorPoint = Vector2.new(0.5, 1)
-toast.BackgroundColor3 = C.ink
-toast.BackgroundTransparency = 0.04
-toast.TextXAlignment = Enum.TextXAlignment.Center
-toast.ZIndex = 30
-toast.Visible = false
-corner(toast, 16)
-create("UISizeConstraint", { MaxSize = Vector2.new(580, 90) }, toast)
-create("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, toast)
-local toastVersion = 0
-local function notify(message)
-	toastVersion += 1
-	local version = toastVersion
-	toast.Text, toast.Visible = message, true
-	task.delay(4, function() if toastVersion == version then toast.Visible = false end end)
-end
-
-local ping = create("Sound", { Name = "SoftDrawPing", SoundId = "rbxasset://sounds/electronicpingshort.wav",
-	Volume = 0.15, PlaybackSpeed = 1.1 }, SoundService)
-
-render = function()
-	if not current then return end
-	local s = current
-	wallet.Text = tostring(s.pesos) .. " Pesos"
-	saving.Text = s.saveStatus
-	local phaseNames = { Waiting = "WELCOME ABOARD", Intermission = "FRESH DELIVERY", Drawing = "SHARED SKY DRAW",
-		Event = "A LITTLE CHANGE OF WIND", LastCall = "FINAL STAMPS", Results = "DELIVERY COMPLETE" }
-	phaseLabel.Text = phaseNames[s.phase] or s.phase
-	ballNumber.Text = if #s.history > 0 then tostring(s.history[#s.history]) else "?"
-	latest.Text = if #s.history > 0 then "Ball " .. #s.history .. " / " .. s.drawCount .. "\nEveryone's draw" else "Two free cards.\nYour next adventure."
-	local participating = #s.cards == 2
-	if not participating then
-		instruction.Text = "Welcome! Watch the shared draw. Your two free cards arrive next round."
-	elseif s.phase == "Intermission" then
-		instruction.Text = "Hi, I'm Pip! Choose a delivery below, then stamp drawn numbers. Any horizontal row wins."
-	elseif s.phase == "Event" then
-		instruction.Text = "Draws are paused. Preview one swap below, or keep your layout. You can still mark drawn numbers."
-	elseif s.phase == "Results" then
-		instruction.Text = "Everyone keeps their earned Pesos. Fresh cards and another breeze are on their way."
-	else
-		instruction.Text = if s.participated then "Stamp matching numbers whenever you're ready. Complete each card once for +15 Pesos."
-			else "Make one choice or manual mark to join this round's rewards. Auto-mark players can tap its setting."
+	button("SettingsButton", gui, "Settings", UDim2.fromOffset(88, 44), UDim2.new(0.5, -94, 1, -126), function() open("Settings") end)
+	local main = pages.Main
+	local mainHint = label("MainHint", main, "", UDim2.new(1, 0, 0, 48), UDim2.fromOffset(0, 0), 13)
+	local card = frame("MainCard", main, UDim2.new(1, 0, 0, 280), UDim2.fromOffset(0, 52))
+	local cells = {}
+	for index = 1, 25 do
+		cells[index] = button("Cell" .. index, card, "—", UDim2.new(0.2, -5, 0.2, -5),
+			UDim2.new((index - 1) % 5 / 5, 3, math.floor((index - 1) / 5) / 5, 3), function() request("Mark", cardIndex, index) end)
 	end
-	goalPanel.Visible = participating and s.phase ~= "Results"
-	local choosing = s.phase == "Intermission"
-	goalPanel.Size = UDim2.new(1, 0, 0, if choosing then 132 else 86)
-	trail.Visible, twins.Visible = choosing, choosing
-	goalProgress.Visible = not choosing
-	goalTitle.Text = if choosing then "Choose a delivery • either earns +10 Pesos" else Config.Goals[s.goal].name .. " • +10 Pesos"
-	goalProgress.Text = Config.Goals[s.goal].short .. "   " .. s.goalProgress .. "/" .. s.goalTarget
-	trail.BackgroundColor3 = if s.goal == "trail" then C.teal else C.muted
-	twins.BackgroundColor3 = if s.goal == "twins" then C.teal else C.muted
-	trail.Text = (if s.goal == "trail" and s.participated then "✓ " else "") .. "Number trail\nMark 5 different numbers"
-	twins.Text = (if s.goal == "twins" and s.participated then "✓ " else "") .. "Double delivery\nSame number on both cards"
-	eventPanel.Visible = s.phase == "Event" and participating
-	if s.swapped then
-		eventText.Text = "Your decision is confirmed. The draw will resume shortly."
-		swapButton.Text, keepButton.Text = "Decision saved", "All set!"
-	elseif #swapSelection == 2 then
-		local a, b = swapSelection[1], swapSelection[2]
-		eventText.Text = "PREVIEW: " .. s.cards[a.card].cells[a.cell].number .. " ↔ " .. s.cards[b.card].cells[b.cell].number
-			.. ". Review the card, then confirm."
-		swapButton.Text, keepButton.Text = "Confirm swap", "Cancel preview"
-	elseif swapMode then
-		eventText.Text = "Tap two cells on the same card. You'll see the new layout before you confirm."
-		swapButton.Text, keepButton.Text = "Exit preview", "Cancel preview"
-	else
-		eventText.Text = "Swap any two cells on ONE card, or keep your layout. Marks travel with numbers."
-		swapButton.Text, keepButton.Text = "Preview a swap", "Keep layout"
+	local nextCard = button("NextCard", main, "Next card", UDim2.new(1, 0, 0, 44), UDim2.fromOffset(0, 340), function()
+		if state and #state.cards > 0 then cardIndex = cardIndex % #state.cards + 1; render() end
+	end)
+	local bonusRows = {}
+	for index, definition in ipairs(Config.Bonuses) do
+		local row = frame(definition.id, pages.Bonuses, UDim2.new(1, 0, 0, 86), UDim2.fromOffset(0, (index - 1) * 94))
+		local title = label("Title", row, definition.name, UDim2.new(1, -16, 0, 22), UDim2.fromOffset(8, 6), 15)
+		local numbers = label("Numbers", row, "", UDim2.new(1, -16, 0, 26), UDim2.fromOffset(8, 28), 18)
+		local progress = label("Progress", row, "", UDim2.new(1, -16, 0, 22), UDim2.fromOffset(8, 57), 12)
+		bonusRows[definition.id] = { title = title, numbers = numbers, progress = progress }
 	end
-	local markerItem = Economy.find(Config.Catalog, s.equipped.marker)
-	local cardItem = Economy.find(Config.Catalog, s.equipped.card)
-	local markerColor = Color3.fromRGB(table.unpack(markerItem.color))
-	for cardIndex = 1, 2 do
-		cardPanels[cardIndex].BackgroundColor3 = Color3.fromRGB(table.unpack(cardItem.color))
-		local card = s.cards[cardIndex]
-		cardTitles[cardIndex].Text = if card and card.complete then "✓ ROW COMPLETE" else "DELIVERY " .. (if cardIndex == 1 then "A" else "B")
-		for cellIndex = 1, 9 do
-			local sourceIndex = cellIndex
-			if #swapSelection == 2 and swapSelection[1].card == cardIndex then
-				if cellIndex == swapSelection[1].cell then sourceIndex = swapSelection[2].cell end
-				if cellIndex == swapSelection[2].cell then sourceIndex = swapSelection[1].cell end
+	label("BonusPending", pages.Bonuses, "Bonus payouts await confirmed rules. Go CRazy: 64 segments and 3 prize pointers.", UDim2.new(1, 0, 0, 58), UDim2.fromOffset(0, 376), 13)
+	local cosmeticButtons = {}
+	for index, item in ipairs(Config.Catalog) do
+		cosmeticButtons[item.id] = button(item.id, pages.Looks, item.name, UDim2.new(1, 0, 0, 48), UDim2.fromOffset(0, (index - 1) * 56), function() request("Cosmetic", item.id) end)
+	end
+	local settingButtons = {}
+	for index, entry in ipairs({ { "autoMark", "Automatic marking" }, { "reducedMotion", "Reduced motion" } }) do
+		local key, title = entry[1], entry[2]
+		settingButtons[key] = button(key, pages.Settings, title, UDim2.new(1, 0, 0, 44), UDim2.fromOffset(0, (index - 1) * 52), function()
+			if state then request("Setting", key, not state.settings[key]) end
+		end)
+	end
+	local volumeLabels = {}
+	for index, entry in ipairs({ { "musicVolume", "Music" }, { "sfxVolume", "Sound effects" } }) do
+		local key, title, y = entry[1], entry[2], 108 + (index - 1) * 56
+		volumeLabels[key] = label(key, pages.Settings, title, UDim2.new(1, -104, 0, 44), UDim2.fromOffset(0, y), 14)
+		for _, delta in ipairs({ -0.1, 0.1 }) do
+			button(key .. tostring(delta), pages.Settings, if delta < 0 then "−" else "+", UDim2.fromOffset(44, 44), UDim2.new(1, if delta < 0 then -96 else -46, 0, y), function()
+				if state then request("Setting", key, math.clamp(math.floor(((state.settings[key] or 0) + delta) * 10 + 0.5) / 10, 0, 1)) end
+			end)
+		end
+	end
+	local saveLabel = label("SaveStatus", pages.Settings, "", UDim2.new(1, 0, 0, 54), UDim2.fromOffset(0, 224), 12)
+	label("Credits", pages.Settings, "Created by Kikapucchino", UDim2.new(1, 0, 0, 30), UDim2.fromOffset(0, 284), 13)
+	label("AudioSlots", pages.Settings, "Soundtrack slots are awaiting licensed audio.", UDim2.new(1, 0, 0, 36), UDim2.fromOffset(0, 319), 12)
+	local function cosmeticColor(category, fallback)
+		local item = state and Economy.find(Config.Catalog, state.equipped[category])
+		return if item then Color3.fromRGB(table.unpack(item.color)) else fallback
+	end
+	render = function()
+		for name, view in pairs(pages) do
+			view.Visible = name == page
+			tabs[name].BackgroundColor3 = if name == page then colors.blue else colors.navy
+		end
+		local heights = { Main = 394, Bonuses = 444, Looks = 340, Settings = 366 }
+		body.CanvasSize = UDim2.fromOffset(0, heights[page])
+		if resize then resize() end
+		if not state then return end
+		ball.Text = tostring(state.history[#state.history] or "—")
+		counter.Text, balance.Text = #state.history .. " / " .. state.drawCount, tostring(state.pesos) .. " Pesos"
+		local recent = {}
+		for index = math.max(1, #state.history - 5), #state.history do table.insert(recent, tostring(state.history[index])) end
+		history.Text = if #recent > 0 then "Recent  ·  " .. table.concat(recent, "  ·  ") else "Fresh pool · 1–60"
+		cardIndex = math.min(cardIndex, math.max(1, #state.cards))
+		local data = state.cards[cardIndex]
+		mainHint.Text = if state.mainPending then "5×5 cards · count, patterns and free center await confirmation." elseif not data then "Next round: your free cards arrive together." else "Card " .. cardIndex .. " / " .. #state.cards .. " · tap matching numbers"
+		card.BackgroundColor3 = cosmeticColor("card", colors.ice)
+		for index, cell in ipairs(cells) do
+			local entry = data and data.cells[index]
+			cell.Text = if entry then (if entry.number == 0 then "FREE" else (if entry.marked then "✓" else "") .. tostring(entry.number)) else "—"
+			cell.BackgroundColor3 = if entry and entry.marked then cosmeticColor("marker", colors.cyan) elseif entry and entry.available then colors.cyan else colors.blue
+			cell.TextColor3 = if entry and (entry.marked or entry.available) then colors.navy else colors.ice
+			cell.Active = entry ~= nil and entry.available and not entry.marked
+		end
+		nextCard.Visible = #state.cards > 1
+		for _, bonus in ipairs(state.bonuses) do
+			local row, numbers = bonusRows[bonus.id], {}
+			for _, entry in ipairs(bonus.cells) do table.insert(numbers, (if entry.marked then "✓" else "") .. entry.number) end
+			row.numbers.Text = if #numbers > 0 then table.concat(numbers, "   ") else "Awaiting card rules"
+			row.progress.Text = if bonus.qualified then "QUALIFIED · result rules pending" elseif bonus.target == 0 then "Qualification count not set" elseif #bonus.cells == 0 then "Joining next round" else bonus.progress .. " / " .. bonus.target .. " matched"
+			row.title.TextColor3 = if bonus.qualified then colors.cyan else colors.ice
+		end
+		for _, item in ipairs(Config.Catalog) do
+			local suffix = if state.equipped[item.category] == item.id then "Equipped" elseif state.owned[item.id] then "Equip" else item.price .. " Pesos"
+			cosmeticButtons[item.id].Text = item.name .. " · " .. suffix
+		end
+		settingButtons.autoMark.Text = "Automatic marking · " .. (if state.settings.autoMark then "On" else "Off")
+		settingButtons.reducedMotion.Text = "Reduced motion · " .. (if state.settings.reducedMotion then "On" else "Off")
+		volumeLabels.musicVolume.Text = "Music  " .. math.floor((state.settings.musicVolume or 0.5) * 100 + 0.5) .. "%"
+		volumeLabels.sfxVolume.Text = "Sound effects  " .. math.floor((state.settings.sfxVolume or 0.7) * 100 + 0.5) .. "%"
+		saveLabel.Text = (state.saveStatus or "") .. (if state.practice then "\nStudio practice · progress is temporary" else "")
+	end
+	stateEvent.OnClientEvent:Connect(function(snapshot)
+		if previousRound ~= snapshot.roundId then previousCount, previousQualified = 0, {} end
+		if #snapshot.history > previousCount then audio:play("draw") end
+		for _, bonus in ipairs(snapshot.bonuses) do
+			if bonus.qualified and not previousQualified[bonus.id] then
+				notify(bonus.name .. " qualified · payout rules pending")
+				audio:play("qualify")
+				previousQualified[bonus.id] = true
 			end
-			local data = if card then card.cells[sourceIndex] else nil
-			local cell, stroke = cells[cardIndex][cellIndex], cellStrokes[cardIndex][cellIndex]
-			cell.Text = if data then tostring(data.number) else "—"
-			cellIndicators[cardIndex][cellIndex].Text = if data and data.marked then "✓" elseif data and data.available then "•" else ""
-			cell.BackgroundColor3 = if data and data.marked then markerColor else C.white
-			stroke.Color = if data and data.available and not data.marked then C.teal else C.line
-			stroke.Thickness = if data and data.available and not data.marked then 3 else 1
-			for _, selected in ipairs(swapSelection) do
-				if selected.card == cardIndex and selected.cell == cellIndex then
-					stroke.Color, stroke.Thickness = C.teal, 4
+		end
+		if snapshot.phase == "Results" and (not state or state.phase ~= "Results") and snapshot.summary then
+			notify("Round complete · +" .. snapshot.summary.total .. " Pesos")
+			audio:play("result")
+		end
+		if state and state.roundId == snapshot.roundId then
+			local marked = false
+			for index, current in ipairs(snapshot.cards) do
+				local old = state.cards[index]
+				for cellIndex, cell in ipairs(current.cells) do
+					if old and cell.marked and not old.cells[cellIndex].marked then marked = true end
+				end
+			end
+			if marked then audio:play("mark") end
+		end
+		if status then status.Visible = false end
+		previousRound, previousCount, state = snapshot.roundId, #snapshot.history, snapshot
+		audio:setVolumes(state.settings)
+		audio:setTrack("lobby")
+		effects:update(state)
+		if state.notice then notify(state.notice) end
+		render()
+	end)
+	local player = Players.LocalPlayer
+	local function bindCharacter(character)
+		-- A single Character.ChildAdded subscription per character; Roblox destroys it on respawn.
+		character.ChildAdded:Connect(function(child) if child:IsA("Tool") and child.Name == "Cards" then open("Main") end end)
+		if character:FindFirstChild("Cards") then open("Main") end
+	end
+	player.CharacterAdded:Connect(bindCharacter)
+	if player.Character then bindCharacter(player.Character) end
+	resize = function()
+		local viewport = gui.AbsoluteSize
+		local width = math.min(330, math.max(240, viewport.X - 24))
+		hud.Size, toast.Size = UDim2.fromOffset(width, 116), UDim2.fromOffset(width, 44)
+		panel.Size = UDim2.fromOffset(width, math.max(100, math.min(510, viewport.Y - 294)))
+		if viewport.Y < 480 then
+			panel.Position = UDim2.new(0.5, width / 2, 0, 8)
+			panel.Size = UDim2.fromOffset(width, math.max(130, viewport.Y - 146))
+			hud.Visible = not isOpen
+		else
+			panel.Position, hud.Visible = UDim2.new(1, -12, 0, 144), true
+		end
+		card.Size = UDim2.new(1, 0, 0, width - 26)
+		nextCard.Position = UDim2.fromOffset(0, width + 34)
+	end
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(resize)
+	task.defer(resize)
+	RunService.RenderStepped:Connect(function()
+		if state then
+			local seconds = math.max(0, math.ceil(state.deadline - workspace:GetServerTimeNow()))
+			phaseText.Text = state.phase .. " · " .. seconds .. "s · " .. state.players .. " here"
+		end
+		if toast.Visible and workspace:GetServerTimeNow() >= noticeUntil then toast.Visible = false end
+	end)
+	render()
+	request("Sync")
+	if status then status.Visible = false end
+	-- A lost initial request must not leave the HUD waiting forever.
+	task.spawn(function()
+		local attempts = 0
+		while not state do
+			task.wait(3)
+			if not state then
+				request("Sync")
+				attempts += 1
+				if attempts >= 5 and status then
+					status.Text = "Waiting for the server. Check Studio Output for a server startup or profile-load error."
+					status.Visible = true
 				end
 			end
 		end
-	end
-	local drawn = {}
-	for _, number in ipairs(s.history) do drawn[number] = true end
-	for number, chip in ipairs(historyLabels) do
-		chip.BackgroundColor3 = if drawn[number] then C.teal else C.white
-		chip.TextColor3 = if drawn[number] then C.white else C.muted
-	end
-	results.Visible = s.phase == "Results" and s.summary ~= nil
-	if results.Visible then
-		resultsTitle.Text = "+" .. s.summary.total .. " Pesos delivered"
-		resultsDetail.Text = "Participation " .. s.summary.participation .. "  •  Rows " .. s.summary.patterns
-			.. "  •  Objective " .. s.summary.objective .. (if s.practice then "\nStudio practice: balance resets when you stop." else "\nLooking good! Progress saves automatically.")
-	end
-	autoButton.Text = if s.settings.autoMark then "Auto-mark: ON" else "Auto-mark: OFF"
-	motionButton.Text = if s.settings.reducedMotion then "Motion: REDUCED" else "Motion: ON"
-	for _, item in ipairs(Config.Catalog) do
-		local equipped = s.equipped[item.category] == item.id
-		shopButtons[item.id].Text = if equipped then "✓ Equipped" elseif s.owned[item.id] then "Equip" else "Buy · " .. item.price .. " Pesos"
-		shopButtons[item.id].BackgroundColor3 = if equipped then C.muted else C.teal
-	end
+	end)
 end
-
-stateEvent.OnClientEvent:Connect(function(snapshot)
-	local previous = current
-	if not previous or snapshot.roundId ~= previous.roundId or snapshot.phase ~= "Event" or snapshot.swapped then
-		swapMode, swapSelection = false, {}
-	end
-	current = snapshot
-	if previous and snapshot.roundId == previous.roundId and #snapshot.history > #previous.history then
-		if soundOn then ping:Play() end
-		if not snapshot.settings.reducedMotion then
-			ballNumber.TextSize = 68
-			TweenService:Create(ballNumber, TweenInfo.new(0.4, Enum.EasingStyle.Back), { TextSize = 58 }):Play()
-		end
-	end
-	if snapshot.notice then notify(snapshot.notice) end
-	if previous and snapshot.phase == "Event" and previous.phase ~= "Event" then
-		tab("Play")
-		notify("Tailwind Switch! The draw is paused for a free board decision.")
-	end
-	render()
-end)
-
-local elapsed = 0
-RunService.RenderStepped:Connect(function(delta)
-	elapsed += delta
-	local reduced = current and current.settings.reducedMotion
-	if not reduced then
-		for index, ball in ipairs(animatedBalls) do
-			local t = elapsed * 0.85 + index * 2.4
-			ball.Position = Vector3.new(math.sin(t) * 1.25, math.cos(t * 1.4) * 1.25 + 0.25, math.sin(t * 0.7) * 0.7 + 0.3)
-		end
-	end
-	if current then
-		local remaining = math.max(0, math.ceil(current.deadline - workspace:GetServerTimeNow()))
-		local prefixes = { Intermission = "Draw begins in ", Drawing = "Next moment in ", Event = "Draw resumes in ",
-			LastCall = "Finish your marks · ", Results = "Fresh cards in ", Waiting = "Getting ready · " }
-		countdown.Text = (prefixes[current.phase] or "") .. remaining .. "s  •  " .. current.players .. " aboard"
-	end
-end)
-
-task.spawn(function()
-	while not current do
-		action:FireServer("Sync")
-		task.wait(2)
-	end
-end)
-
-startup.Visible = false
-end
-
 local ok, problem = xpcall(initialize, debug.traceback)
 if not ok then
-	startup.Visible = true
-	startup.Text = "Cloudpop couldn't finish opening.\nStop the test, then press Play again.\n\n"
-		.. (string.match(tostring(problem), "[^\n]+") or "Startup error")
-	warn("Cloudpop startup failed:\n" .. tostring(problem))
+	warn("Cloudpop client startup: " .. tostring(problem))
+	if status then
+		status.Text = "Cloudpop couldn't finish opening.\n" .. tostring(problem):match("[^\n]+")
+		status.Visible = true
+	end
 end

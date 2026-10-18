@@ -1,177 +1,144 @@
--- Execute the actual client initializer and render callbacks without a Roblox renderer.
 local startClient = require("./.generated/ClientHarness")
+local loadAudio = require("./.generated/AudioControllerHarness")
+local loadEffects = require("./.generated/WorldEffectsHarness")
+local loadHolder = require("./.generated/CardHolderHarness")
 local Config = require("../src/shared/Config")
 local Economy = require("../src/shared/Economy")
+local Mock = require("./mock")
 local passed = 0
 local function test(name, callback)
-	local ok, message = pcall(callback)
-	assert(ok, name .. ": " .. tostring(message))
+	local ok, problem = pcall(callback)
+	assert(ok, name .. ": " .. tostring(problem))
 	passed += 1
 	print("PASS " .. name)
 end
-
-local function signal()
-	local callbacks = {}
-	return {
-		Connect = function(_, callback) table.insert(callbacks, callback) end,
-		Fire = function(_, ...)
-			for _, callback in ipairs(callbacks) do callback(...) end
-		end,
-	}
-end
-
 local function environment(missing)
-	local instances, warnings, requests, deferred = {}, {}, {}, {}
-	local methods = {}
-	local function node(class, name, parent)
-		local properties = { ClassName = class, Name = name or class, AbsoluteSize = { X = 400, Y = 300 },
-			Visible = true, Activated = signal(), OnClientEvent = signal() }
-		local children = {}
-		local object = setmetatable({}, {
-			__index = function(_, key)
-				if key == "children" then return children end
-				return methods[key] or properties[key]
-			end,
-			__newindex = function(self, key, value)
-				properties[key] = value
-				if key == "Parent" then table.insert(value.children, self) end
-			end,
-		})
-		if parent then object.Parent = parent end
-		table.insert(instances, object)
-		return object
-	end
-	function methods:FindFirstChild(name, recursive)
-		for _, child in ipairs(self.children) do
-			if child.Name == name then return child end
-			if recursive then
-				local found = child:FindFirstChild(name, true)
-				if found then return found end
-			end
-		end
-		return nil
-	end
-	function methods:WaitForChild(name) return self:FindFirstChild(name) end
-	function methods:GetFullName() return self.Name end
-	function methods:GetPropertyChangedSignal() return signal() end
-	function methods:FireServer(...) table.insert(requests, table.pack(...)) end
-	function methods:Play() end
-	local gui = node("ScreenGui", "CloudpopUI")
-	local status = node("TextLabel", "StartupStatus", gui)
-	status.Text = "Loading"
-	local replication = node("ReplicatedStorage")
-	local shared = node("Folder", "Cloudpop", replication)
-	local config = node("ModuleScript", "Config", shared)
-	local economy = node("ModuleScript", "Economy", shared)
+	local new, all, methods = Mock.instances()
+	local warnings, requests, deferred, delayed = {}, {}, {}, {}
+	local gui = new("ScreenGui", "CloudpopUI")
+	local status = new("TextLabel", "StartupStatus", gui)
+	local replication = new("ReplicatedStorage")
+	local shared = new("Folder", "Cloudpop", replication)
+	local config, economy = new("ModuleScript", "Config", shared), new("ModuleScript", "Economy", shared)
+	local audioModule, effectsModule = new("ModuleScript", "AudioController", gui), new("ModuleScript", "WorldEffects", gui)
 	local remotes
-	if missing ~= "Remotes" then
-		remotes = node("Folder", "Remotes", shared)
-		node("RemoteEvent", "Action", remotes)
-		node("RemoteEvent", "State", remotes)
+	if not missing then
+		remotes = new("Folder", "Remotes", shared)
+		new("RemoteEvent", "Action", remotes)
+		new("RemoteEvent", "State", remotes)
 	end
-	local services = {
-		Players = { LocalPlayer = {} }, ReplicatedStorage = replication,
-		RunService = { RenderStepped = signal() }, SoundService = node("SoundService"),
-		TweenService = { Create = function() return { Play = function() end } end },
-	}
-	local enum = {}
-	for group, names in pairs({
-		Font = { "GothamMedium", "GothamBold", "GothamBlack" },
-		TextXAlignment = { "Left", "Right", "Center" }, TextYAlignment = { "Center" },
-		ZIndexBehavior = { "Sibling" }, AutomaticSize = { "Y" }, ScrollingDirection = { "Y" },
-		SortOrder = { "LayoutOrder" }, PartType = { "Ball", "Block" }, Material = { "SmoothPlastic" },
-		SurfaceType = { "Smooth" }, ApplyStrokeMode = { "Border" }, EasingStyle = { "Back" },
-	}) do
-		enum[group] = {}
-		for _, name in ipairs(names) do enum[group][name] = group .. "." .. name end
-	end
-	local function constructor(...) return { ... } end
-	local env = {
-		game = { GetService = function(_, name) return assert(services[name], name) end },
-		script = { Parent = gui }, workspace = { GetServerTimeNow = function() return 1 end },
-		task = {
-			defer = function(callback) table.insert(deferred, callback) end,
-			delay = function() end,
-			spawn = function(callback)
-				local ok, problem = coroutine.resume(coroutine.create(callback))
-				assert(ok, problem)
-			end,
-			wait = function() coroutine.yield() end,
-		},
-		Instance = { new = function(class) return node(class) end },
-		require = function(module)
-			if module == config then return Config end
-			if module == economy then return Economy end
-			error("unexpected require")
+	local player = new("Player")
+	local services = { Players = { LocalPlayer = player }, ReplicatedStorage = replication, SoundService = new("SoundService"),
+		RunService = { RenderStepped = Mock.signal() }, TweenService = { Create = function(_, target, _, properties)
+			return { Play = function() for k, v in pairs(properties) do target[k] = v end end, Cancel = function() end }
+		end } }
+	function methods:FireServer(...) table.insert(requests, table.pack(...)) end
+	local env = Mock.globals()
+	env.game = { GetService = function(_, name) return assert(services[name], name) end }
+	env.script = { Parent = gui }
+	env.workspace = { GetServerTimeNow = function() return 1 end, FindFirstChild = function() return nil end }
+	env.task = {
+		defer = function(callback) table.insert(deferred, callback) end,
+		delay = function(_, callback) table.insert(delayed, callback) end,
+		spawn = function(callback, ...)
+			local ok, problem = coroutine.resume(coroutine.create(callback), ...)
+			assert(ok, problem)
 		end,
-		warn = function(message) table.insert(warnings, message) end,
-		Color3 = { fromRGB = constructor }, ColorSequence = { new = constructor },
-		UDim = { new = constructor }, UDim2 = { new = constructor, fromOffset = constructor, fromScale = constructor },
-		Vector2 = { new = constructor }, Vector3 = { new = constructor }, CFrame = { lookAt = constructor },
-		Enum = enum, TweenInfo = { new = constructor },
+		wait = function() coroutine.yield() end,
 	}
-	return { env = env, gui = gui, status = status, remotes = remotes, instances = instances,
-		warnings = warnings, requests = requests, deferred = deferred, services = services }
-end
-
-local function snapshot(phase)
-	local data = Economy.defaults()
-	local cards = {}
-	for cardIndex = 1, 2 do
-		local cells = {}
-		for number = 1, 9 do
-			cells[number] = { number = number + (cardIndex - 1) * 9, marked = false, available = false }
-		end
-		cards[cardIndex] = { cells = cells, complete = false }
+	env.Instance, env.warn = { new = new }, function(message) table.insert(warnings, message) end
+	env.require = function(module)
+		if module == config then return Config elseif module == economy then return Economy
+		elseif module == audioModule then return loadAudio(env) elseif module == effectsModule then return loadEffects(env) end
+		error("Unknown module")
 	end
-	return { roundId = 1, phase = phase, deadline = 10, history = {}, drawCount = 18, cards = cards,
-		goal = "trail", goalProgress = 0, goalTarget = 5, swapped = false, participated = false,
-		pesos = 0, rounds = 0, owned = data.owned, equipped = data.equipped, settings = data.settings,
-		saveStatus = "Studio practice", practice = true, players = 1 }
+	return { env = env, gui = gui, status = status, remotes = remotes, warnings = warnings, requests = requests,
+		deferred = deferred, delayed = delayed, services = services, new = new, all = all, player = player }
 end
-
-test("packaged client builds the interface, subscribes and requests its first snapshot", function()
+local function snapshot(phase)
+	local data, bonuses = Economy.defaults(), {}
+	for _, definition in ipairs(Config.Bonuses) do
+		local cells = {}
+		for index = 1, definition.count do cells[index] = {number = index, marked = false} end
+		table.insert(bonuses, { id=definition.id, name=definition.name, cells=cells, target=definition.count, progress=0, qualified=false })
+	end
+	return { roundId=1, phase=phase, deadline=10, history={}, drawCount=20, cards={}, bonuses=bonuses, mainPending=true,
+		pesos=0, owned=data.owned, equipped=data.equipped, settings=data.settings, saveStatus="Studio practice", practice=true, players=2 }
+end
+test("real client starts with compact HUD and collapsed cards, then requests sync", function()
 	local h = environment()
 	startClient(h.env)
 	assert(#h.warnings == 0, h.warnings[1])
-	assert(not h.status.Visible)
-	assert(h.gui:FindFirstChild("Cards", true) and h.gui:FindFirstChild("Wardrobe", true))
-	assert(#h.requests == 1 and h.requests[1][1] == "Sync")
+	assert(not h.status.Visible and not h.gui.CardPanel.Visible)
+	assert(h.gui.HUD and #h.requests == 1 and h.requests[1][1] == "Sync")
 	for _, callback in ipairs(h.deferred) do callback() end
-	h.remotes:FindFirstChild("State").OnClientEvent:Fire(snapshot("Intermission"))
-	assert(h.gui:FindFirstChild("Card1", true):FindFirstChild("Cell1", true).Text == "1")
+	h.remotes.State.OnClientEvent:Fire(snapshot("Intermission"))
+	h.gui.CardsButton.Activated:Fire()
+	assert(h.gui.CardPanel.Visible and h.requests[#h.requests][1] == "Participate")
+	assert(h.gui:FindFirstChild("MainCard", true):FindFirstChild("Cell25").Text == "—")
+	assert(h.gui:FindFirstChild("Credits", true).Text == "Created by Kikapucchino")
 end)
-
-test("missing server remotes show a visible startup error instead of an empty workshop", function()
-	local h = environment("Remotes")
+test("missing remotes retain a readable startup error", function()
+	local h = environment(true)
 	startClient(h.env)
-	assert(h.status.Visible and string.find(h.status.Text, "Remotes"))
-	assert(#h.warnings == 1 and #h.requests == 0)
+	assert(h.status.Visible and string.find(h.status.Text, "Remotes") and #h.warnings == 1)
 end)
-
-test("client renders drawing, event, results and spectator snapshots", function()
+test("real client renders draws, qualification, results and sends server-validated actions", function()
 	local h = environment()
 	startClient(h.env)
 	assert(#h.warnings == 0, h.warnings[1])
-	local event = h.remotes:FindFirstChild("State").OnClientEvent
-	local drawing = snapshot("Drawing")
-	drawing.history = { 1 }
-	drawing.cards[1].cells[1].available = true
-	event:Fire(drawing)
-	h.gui:FindFirstChild("Card1", true):FindFirstChild("Cell1", true).Activated:Fire()
-	assert(h.requests[#h.requests][1] == "Mark" and h.requests[#h.requests][5] == 1)
-	event:Fire(snapshot("Event"))
-	assert(h.gui:FindFirstChild("TailwindSwitch", true).Visible)
-	local result = snapshot("Results")
-	result.summary = { total = 35, participation = 20, patterns = 15, objective = 0 }
-	result.pesos = 35
-	event:Fire(result)
-	assert(h.gui:FindFirstChild("RoundResults", true).Visible)
-	local spectator = snapshot("Drawing")
-	spectator.cards = {}
-	event:Fire(spectator)
-	assert(h.gui:FindFirstChild("Card1", true):FindFirstChild("Cell1", true).Text == "—")
+	local data = snapshot("Drawing")
+	data.history, data.mainPending = { 1, 2, 3 }, false
+	local cells = {}
+	for i=1,25 do cells[i] = {number=i, marked=false, available=i<=3} end
+	data.cards = {{cells=cells}}
+	data.bonuses[1].qualified, data.bonuses[1].progress = true, 3
+	h.remotes.State.OnClientEvent:Fire(data)
+	assert(h.gui.HUD.CurrentBall.Text == "3" and h.gui.HUD.DrawCount.Text == "3 / 20")
+	assert(string.find(h.gui:FindFirstChild("coin", true).Progress.Text, "QUALIFIED"))
+	h.gui:FindFirstChild("MainCard", true).Cell1.Activated:Fire()
+	local request = h.requests[#h.requests]
+	assert(request[1] == "Mark" and request[2] == 1 and request[3] == 1 and request[5] == 1)
+	data.phase, data.summary, data.pesos = "Results", {total=20}, 20
+	h.remotes.State.OnClientEvent:Fire(data)
+	assert(h.gui.HUD.Pesos.Text == "20 Pesos")
 	h.services.RunService.RenderStepped:Fire(0.1)
 end)
-
-print("Client startup: " .. passed .. " tests passed (mock Roblox services)")
+test("equipping the replicated holder opens cards without camera changes", function()
+	local h = environment()
+	startClient(h.env)
+	assert(#h.warnings == 0, h.warnings[1])
+	local character = h.new("Model")
+	h.player.CharacterAdded:Fire(character)
+	character.ChildAdded:Fire(h.new("Tool", "Cards"))
+	assert(h.gui.CardPanel.Visible)
+	assert(h.env.workspace.CurrentCamera == nil)
+end)
+test("card-holder grant is idempotent and creates a visible, noncolliding tool", function()
+	local h = environment()
+	local player = h.new("Player", "Ada", h.new("Players"))
+	local backpack = h.new("Backpack", "Backpack", player)
+	local holder = loadHolder(h.env)
+	holder.give(player); holder.give(player)
+	assert(#backpack:GetChildren() == 1 and backpack.Cards.Handle and not backpack.Cards.CanBeDropped)
+	assert(not backpack.Cards.Handle.CanCollide and backpack.Cards.Handle.Massless)
+	player.Character = h.new("Model")
+	backpack.Cards.Parent = player.Character
+	holder.give(player)
+	assert(#backpack:GetChildren() == 0)
+end)
+test("audio skips empty IDs and rapid track switches leave only the newest track playing", function()
+	local h = environment()
+	local audio = loadAudio(h.env).new({ Music={lobby="", coin="rbxassetid://123", duck="rbxassetid://456"}, SFX={} })
+	audio:setTrack("lobby")
+	for _, callback in ipairs(h.delayed) do callback() end
+	assert(not h.services.SoundService.CloudpopMusic.IsPlaying)
+	table.clear(h.delayed)
+	audio:setTrack("coin"); audio:setTrack("duck")
+	for _, callback in ipairs(h.delayed) do callback() end
+	assert(h.services.SoundService.CloudpopMusic.SoundId == "rbxassetid://456")
+	local playing = 0
+	for _, sound in ipairs(h.services.SoundService:GetChildren()) do if sound.IsPlaying then playing += 1 end end
+	assert(playing == 1)
+end)
+print("Client/tool/audio: " .. passed .. " tests passed (mock Roblox services)")

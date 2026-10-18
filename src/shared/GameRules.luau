@@ -1,141 +1,66 @@
--- Engine-independent rules: also executed by tests/rules.spec.luau.
+-- Pure round rules. Randomness is injected by the server, never by a client.
 local Rules = {}
-
 function Rules.isIndex(value, maximum)
 	return type(value) == "number" and value == value and value % 1 == 0 and value >= 1 and value <= maximum
 end
-
-function Rules.shuffle(count, nextInteger)
-	local deck = {}
-	for number = 1, count do
-		deck[number] = number
-	end
+function Rules.shuffle(count, random)
+	local result = {}
+	for value = 1, count do result[value] = value end
 	for index = count, 2, -1 do
-		local other = nextInteger(1, index)
-		deck[index], deck[other] = deck[other], deck[index]
+		local other = random(1, index)
+		result[index], result[other] = result[other], result[index]
 	end
-	return deck
+	return result
 end
-
-function Rules.newCardState(pool, nextInteger)
-	local firstDeck = Rules.shuffle(pool, nextInteger)
-	local secondDeck = Rules.shuffle(pool, nextInteger)
-	local first, second = {}, { firstDeck[1] }
-	for index = 1, 9 do
-		first[index] = firstDeck[index]
-	end
-	-- At least one shared number makes Double Delivery possible on every pair.
-	for _, number in ipairs(secondDeck) do
-		if number ~= second[1] and #second < 9 then
-			table.insert(second, number)
+function Rules.newCardState(config, random)
+	local state = { cards = {}, marks = {}, bonuses = {}, participated = false, settled = false }
+	-- A zero-card preview explicitly avoids inventing count/pattern/free-center rules.
+	if config.Main.Confirmed then
+		assert(Rules.isIndex(config.Main.Count, 8), "Confirm a main card count from 1 to 8")
+		for index = 1, config.Main.Count do
+			local deck, card = Rules.shuffle(config.NumberPool, random), {}
+			for cell = 1, 25 do card[cell] = if cell == 13 and config.Main.FreeCenter then 0 else deck[cell] end
+			state.cards[index], state.marks[index] = card, { [0] = true }
 		end
 	end
-	local positions = Rules.shuffle(9, nextInteger)
-	local mixedSecond = {}
-	for index, position in ipairs(positions) do
-		mixedSecond[index] = second[position]
+	for _, definition in ipairs(config.Bonuses) do
+		local numbers, deck = {}, Rules.shuffle(config.NumberPool, random)
+		for index = 1, definition.count do numbers[index] = deck[index] end
+		state.bonuses[definition.id] = { numbers = numbers, progress = 0, qualified = false }
 	end
-	return {
-		cards = { first, mixedSecond },
-		marks = { {}, {} },
-		claimed = { false, false },
-		goal = "trail",
-		participated = false,
-		swapped = false,
-		settled = false,
-	}
+	return state
 end
-
 function Rules.mark(state, drawn, cardIndex, cellIndex)
-	if state.settled or not Rules.isIndex(cardIndex, 2) or not Rules.isIndex(cellIndex, 9) then
-		return false
-	end
+	if state.settled or not Rules.isIndex(cardIndex, #state.cards) or not Rules.isIndex(cellIndex, 25) then return false end
 	local number = state.cards[cardIndex][cellIndex]
-	if not drawn[number] or state.marks[cardIndex][number] then
-		return false
-	end
-	state.marks[cardIndex][number] = true
-	state.participated = true
+	if not drawn[number] or state.marks[cardIndex][number] then return false end
+	state.marks[cardIndex][number], state.participated = true, true
 	return true
 end
-
 function Rules.markAll(state, drawn)
-	-- Automatic marks don't count as an interaction for participation rewards.
-	local participated = state.participated
-	for cardIndex, card in ipairs(state.cards) do
-		for cellIndex in ipairs(card) do
-			Rules.mark(state, drawn, cardIndex, cellIndex)
+	if state.settled then return end
+	for index, card in ipairs(state.cards) do
+		for _, number in ipairs(card) do
+			if drawn[number] then state.marks[index][number] = true end
 		end
 	end
-	state.participated = participated
 end
-
-function Rules.claimPatterns(state)
-	local newlyClaimed = 0
-	for cardIndex, card in ipairs(state.cards) do
-		if not state.claimed[cardIndex] then
-			for row = 0, 2 do
-				local offset = row * 3
-				local marks = state.marks[cardIndex]
-				if marks[card[offset + 1]] and marks[card[offset + 2]] and marks[card[offset + 3]] then
-					state.claimed[cardIndex] = true
-					newlyClaimed += 1
-					break
-				end
-			end
+function Rules.qualify(state, drawn)
+	local newlyQualified = {}
+	for id, card in pairs(state.bonuses) do
+		local progress = 0
+		for _, number in ipairs(card.numbers) do if drawn[number] then progress += 1 end end
+		card.progress = progress
+		if #card.numbers > 0 and progress == #card.numbers and not card.qualified then
+			card.qualified = true
+			table.insert(newlyQualified, id)
 		end
 	end
-	return newlyClaimed
+	return newlyQualified
 end
-
-function Rules.swap(state, cardIndex, firstIndex, secondIndex)
-	if state.settled or state.swapped or not Rules.isIndex(cardIndex, 2)
-		or not Rules.isIndex(firstIndex, 9) or not Rules.isIndex(secondIndex, 9) or firstIndex == secondIndex then
-		return false
-	end
-	local card = state.cards[cardIndex]
-	card[firstIndex], card[secondIndex] = card[secondIndex], card[firstIndex]
-	-- Marks are keyed by number and therefore travel with their cells.
-	state.swapped = true
-	state.participated = true
-	return true
-end
-
-function Rules.goalProgress(state)
-	if state.goal == "twins" then
-		for number in pairs(state.marks[1]) do
-			if state.marks[2][number] then
-				return 1, 1
-			end
-		end
-		return 0, 1
-	end
-	local unique = {}
-	for _, marks in ipairs(state.marks) do
-		for number in pairs(marks) do
-			unique[number] = true
-		end
-	end
-	local count = 0
-	for _ in pairs(unique) do
-		count += 1
-	end
-	return math.min(count, 5), 5
-end
-
 function Rules.settle(state, rewards)
-	if state.settled then
-		return nil
-	end
+	if state.settled then return nil end
 	state.settled = true
-	local patterns = (if state.claimed[1] then 1 else 0) + (if state.claimed[2] then 1 else 0)
-	local progress, target = Rules.goalProgress(state)
-	-- A player must make at least one choice or valid manual mark this round.
-	local participation = if state.participated then rewards.Participation else 0
-	local patternReward = if state.participated then patterns * rewards.Pattern else 0
-	local objective = if state.participated and progress == target then rewards.Objective else 0
-	return { participation = participation, patterns = patternReward, objective = objective,
-		total = participation + patternReward + objective }
+	return { total = if state.participated then rewards.Participation else 0, bonusPending = true }
 end
-
 return Rules

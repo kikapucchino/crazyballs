@@ -1,86 +1,57 @@
-# Cloudpop Commons
+# Cloudpop Commons · build 0.2.0
 
-A playable Roblox prototype about shared sky draws, satisfying stamps, and a cozy wind-powered workshop. Built for solo play and small multiplayer sessions, with mobile and PC controls.
+A Roblox multiplayer lobby with shared ball draws, free bonus cards, a compact HUD, and an equippable card holder. **This is an intermediate playable build, not the completed bonus game.** Unspecified rules remain disabled rather than being invented.
 
-## First step: play in Roblox Studio
+## Download and open
 
-**[Download the Studio ZIP](dist/CloudpopCommons-Studio.zip)** using GitHub's **Download raw file** button on that page. Extract it to get `CloudpopCommons.rbxl`. Alternatively, use the green **Code → Download ZIP** button on the repository home page and find the place inside `dist/`.
+1. Open **[CloudpopCommons-Studio.zip](dist/CloudpopCommons-Studio.zip)** and click GitHub's **Download raw file** button. Extract `CloudpopCommons.rbxl`.
+2. If that download fails, go to the repository home page → **Code → Download ZIP**. Extract it and find `dist/CloudpopCommons.rbxl`.
+3. In Roblox Studio: **File → Open from File** → choose `CloudpopCommons.rbxl` → **Play (F5)**.
+4. Walk around, sit at a table, equip **Cards** from your backpack, or press the compact **Cards** button. Open **Bonuses** to follow your qualifying numbers.
+5. Watch the machine draw exactly **20 unique balls from 1–60**. Opening your cards during the round counts toward the existing **20-Pesos participation reward**. You can spend earned Pesos on the displayed guaranteed cosmetics.
 
-1. Download **[dist/CloudpopCommons.rbxl](dist/CloudpopCommons.rbxl)** to a Windows or macOS computer with Roblox Studio.
-2. In Studio, choose **File → Open from File** and open it.
-3. Press **Play (F5)**. The workshop and interface are created when the server starts.
-4. Choose either delivery objective, mark matching numbers, and complete a horizontal row. Try **Auto-mark** and the **Tailwind Switch** preview.
-5. Let the round finish. Verify the reward breakdown, then spend earned Pesos in **Cosmetic wardrobe**.
+No plugin, API key, external model, paid asset, or manual script copying is needed. The scenery appears when Play starts. Studio practice uses temporary profiles and requires no publishing or API-service setting. Download a fresh copy to replace an older build; this does not update places you have already opened in Studio.
 
-The place contains its `CloudpopUI` directly in `StarterGui`, including a visible startup screen. Build **0.1.3** fixes the server startup failure caused by attempting to change Roblox's restricted `FallenPartsDestroyHeight` property from a running script. The setting is now saved in the place itself. Download the latest binary `.rbxl` or Studio ZIP. No plugin is needed to open it. Both place formats are built with Rojo; the client reports startup stages and initialization errors.
+[Studio testing and exact Explorer hierarchy](docs/STUDIO_GUIDE.md) · [Unresolved rules and implementation status](docs/IMPLEMENTATION_STATUS.md) · [Official policy review](docs/POLICY_REVIEW.md)
 
-No plugin, external models, API key, or paid asset is needed. An unpublished place runs in **Studio practice**: balances and cosmetics reset when the session stops. Do not enable cloud saving just to try the game.
+## Implemented
 
-**Start with this one playtest.** Then follow [the Studio guide](docs/STUDIO_GUIDE.md) for two-client testing, touch layouts, and persistence.
+- Original navy/blue/ice observatory with tables, eight usable seats, paths, planting details, open canopy, central animated machine and large shared draw display. Normal Roblox avatars, camera and movement are retained.
+- Compact HUD, current ball, 0/20–20/20 counter, recent balls, Pesos, collapsible cards, four bonus-card entries, cosmetic shop, saved volume/accessibility settings and discreet creator credit.
+- A server-created, non-droppable card-holder Tool visible to other players. Equipping it opens your cards; respawn grants it again.
+- One authoritative shuffled 60-number pool per round, exactly 20 draws, automatic individual bonus matching, late-join spectators, fresh cards next round, and multiple simultaneous qualifications.
+- Three-number Coin flip card, four-number Duck hunt card, four-number Pačinki card; Go CRazy entry is explicitly pending its qualification count.
+- A 5×5 main-card UI and validated marking component. **No main cards are currently dealt:** count, winning patterns, free-center choice and pattern rewards need confirmation.
+- Original participation reward and six guaranteed Pesos cosmetics; no wagers, paid entry, Robux prompts, paid randomness, currency transfer or cash-out.
+- Existing session-locked DataStore saving, failure handling, retries, autosave, leave settlement and shutdown handling. Old volume-less profiles receive defaults.
+- Audio controller with separate volumes, four effect voices and one music voice with sequential fades. **Audio asset slots are empty; this build is silent.**
 
-## Included
+A preview round lasts approximately 110 seconds: 12 seconds of intermission, 80 seconds of draws, 8 seconds of last call, and 10 seconds of results. This timing does not decide whether future bonuses interrupt or follow the draw.
 
-- Two free, different-layout 3×3 cards per player; the pair always shares at least one number.
-- One server-shuffled deck, numbers 1–24 without replacement, with 18 draws per round.
-- Any horizontal row completes a card. Both cards can earn their reward, and no player ends the round for others.
-- Two equally rewarded objectives: five distinct marked numbers, or one number marked on both cards.
-- Tailwind Switch: once per round, preview and confirm a two-cell swap on one card, or keep the layout. Marks follow numbers.
-- 20 Pesos for active participation, 15 per completed card, and 10 for the objective; maximum 60 per round.
-- Six named cosmetics, including the two defaults. The other markers cost 60 Pesos; card skins cost 150. All purchases grant the displayed item and equip it.
-- A responsive, scrollable UI, touch-friendly card buttons, non-color mark indicators, free automatic marking, reduced motion, and a local sound toggle.
-- An original primitive-built workshop and locally animated machine. The decorative balls do not control outcomes.
-- Server authority over card generation, draws, marks, event choices, completion, balances, ownership, and prices.
-- DataStore profiles with `UpdateAsync`, session leases, retries, autosave, leave settlement, and shutdown saves. Studio saves require explicit opt-in.
+## Explicitly unfinished
 
-A round currently takes **140 seconds**, including a 12-second preparation phase, 90 seconds of draws, an 18-second event, 8 seconds for final marks, and 12 seconds of results. Joining after draws begin means spectating until the next deal. A valid manual mark or an objective/event/settings choice establishes participation. Auto-mark alone does not farm rewards. Leaving before any number is drawn grants nothing.
+**No bonus animations, bonus selection UI, queued bonus execution, or bonus payouts are active.** The four cards track eligibility only. Coin/Duck/Pačinki signed bounds are preserved in configuration. Tested calculation helpers support shared Coin/Pačinki outcomes, Duck automatic fallback, exact signed integer multiplication by 20 and duplicate computation receipts; they are not integrated with balance mutation or persistent bonus receipts.
 
-## What comes later
+Go CRazy's **64 segments and 3 selectable prize pointers** are recorded. Sector values/probabilities, qualification count, choice versus shared-result semantics, secondary choices, and multiplier composition remain unconfirmed. Its playable wheel is not implemented.
 
-This is the first playable slice, not a launch-complete experience. Additional target patterns and bonus events, station decorations, a fully modeled Pip mascot, custom audio, and Robux cosmetic products are postponed. There are no Robux prompts, paid advantages, random paid products, wagering, trades, or transfers.
+Main pattern wins, negative deductions, bonus timing/retriggering and the large-balance schema migration await decisions. Changing a configuration flag alone does not implement these systems. Existing version-1 saves remain compatible and use the existing nonnegative, bounded numeric ledger; huge/signed bonus amounts are never written to it.
 
-The title's availability is unverified. Review the current Roblox policies and experience questionnaire before publication; this project does not establish moderation approval.
+The two layout-reference screenshots mentioned in the pasted specification were unavailable. This build follows the written blue-lobby requirements and does not claim an exact reference-image match. Custom licensed music, Robux cosmetic products and real Studio visual/mobile/multiplayer validation remain outstanding.
 
-## Project structure
-
-```text
-src/shared/Config.luau                 Tuning, objectives, and cosmetic catalog
-src/shared/GameRules.luau              Card, mark, pattern, swap, and reward rules
-src/shared/Economy.luau                Profile normalization and cosmetic purchases
-src/server/ProfileStore.luau           Persistence and session ownership
-src/server/Workshop.luau              Original lobby built from primitives
-src/server/GameServer.server.luau      Round loop and validated remote requests
-src/client/GameClient.client.luau      Responsive UI and decorative animation
-default.project.json                  Optional Rojo project
-tools/build_place.py                  Standard Rojo place builder wrapper
-tools/install_rojo.py                 Verified, pinned Rojo installer for cloud Linux
-tests/                                Rules, persistence, server, and packaging checks
-dist/CloudpopCommons.rbxl              Open directly in Roblox Studio
-dist/CloudpopCommons-Studio.zip        ZIP containing the same Studio place
-```
-
-Exact Explorer locations and every test step are in [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md). The complete Luau code lives in the files above; no code needs to be copied out of chat.
-
-## Build and checks
-
-With Python 3 and Rojo installed, rebuild both place formats after editing a script:
-
-```sh
-python3 tools/build_place.py
-python3 -m unittest discover -s tests -p 'test_*.py'
-```
-
-The cloud setup installs the official Luau CLI from a pinned source commit and Rojo 7.5.1 from its upstream release, verifies Rojo's archive checksum, and runs all checks:
+## Build and verify
 
 ```sh
 bash tools/bootstrap.sh
 ```
 
-That requires Git, Make, a C++ compiler, Python 3, and HTTPS access to GitHub. It puts development tools outside the checkout in `/workspace/.cloudpop-tools`; override `CLOUDPOP_TOOLS_DIR` on another machine. Alternatively install the official Luau CLI yourself and run:
+This installs pinned official Luau and Rojo tools with checksum verification, checks the source, and rebuilds the place. Tools live outside the checkout under `/workspace/.cloudpop-tools` (override `CLOUDPOP_TOOLS_DIR` elsewhere). With tools already installed:
 
 ```sh
-LUAU_BIN=/path/to/luau LUAU_COMPILE_BIN=/path/to/luau-compile python3 tools/check.py
+python3 tools/check.py
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 tools/build_place.py
 ```
 
-The tests execute the real rule modules, the real persistence module against a mock DataStore, and the actual server controller and client initializer against simulated Roblox services. They test client startup and missing dependencies, malformed/stale requests, duplicate rewards, card distribution, swaps, profile conflicts, failed saves, late joins, and leaving. They do **not** substitute for Roblox Studio's renderer, networking, or live DataStore tests.
+Current validation: **48 Luau checks + 5 packaging tests**. These execute actual modules/controllers against mock Roblox services and test unique draws, synchronization, qualification, malformed requests, signed bounds, exact arithmetic, idempotence, startup, tools, audio, session conflicts and save failures. They do not replace Roblox Studio's renderer, networking, audio permissions, mobile emulator or live DataStore tests.
 
-Both `.rbxl` and `.rbxlx` embed all source and have SHA-256 files beside them. The build also refreshes and verifies `CloudpopCommons-Studio.zip`, which contains the binary place. Rojo handles script and instance serialization. Open the latest rebuilt output after source changes. `rojo serve` with `default.project.json` provides an optional live-sync workflow. You need Rojo to build from source; you do not need it to open and play the packaged place.
+The build creates `.rbxl`, `.rbxlx`, a ZIP containing the binary place, and SHA-256 sidecars in `dist/`. Rojo serializes every script into the proper service. Optional live-sync configuration is in `default.project.json`.

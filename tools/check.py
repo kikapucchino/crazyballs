@@ -32,7 +32,7 @@ def main():
             'return function(game, workspace, task, Instance, Random, require, script, os)\n' + server_source + '\nend\n')
         workshop_source = (ROOT / 'src/server/Workshop.luau').read_text()
         (generated / 'WorkshopHarness.luau').write_text(
-            'return function(game, workspace, Instance, Vector3, Color3, Enum)\n' + workshop_source + '\nend\n')
+            'return function(game, workspace, Instance, Vector3, Color3, Enum, Vector2, UDim2)\n' + workshop_source + '\nend\n')
         client_source = (ROOT / 'src/client/GameClient.client.luau').read_text()
         globals_ = ('game', 'script', 'workspace', 'task', 'Instance', 'require', 'warn',
                     'Color3', 'ColorSequence', 'UDim', 'UDim2', 'Vector2', 'Vector3',
@@ -40,6 +40,11 @@ def main():
         bindings = '\n'.join(f'local {name} = environment.{name}' for name in globals_)
         (generated / 'ClientHarness.luau').write_text(
             'return function(environment)\n' + bindings + '\n' + client_source + '\nend\n')
+        for module in ('AudioController', 'WorldEffects'):
+            source = (ROOT / f'src/client/{module}.luau').read_text()
+            (generated / f'{module}Harness.luau').write_text('return function(environment)\n' + bindings + '\n' + source + '\nend\n')
+        source = (ROOT / 'src/server/CardHolder.luau').read_text()
+        (generated / 'CardHolderHarness.luau').write_text('return function(environment)\n' + bindings + '\n' + source + '\nend\n')
         sources = sorted((ROOT / 'src').rglob('*.luau')) + sorted((ROOT / 'tests').rglob('*.luau'))
         for source in sources:
             result = subprocess.run([compiler, '--null', str(source)], cwd=ROOT, capture_output=True, text=True)

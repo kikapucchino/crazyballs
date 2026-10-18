@@ -7,7 +7,7 @@ function Economy.defaults()
 		rounds = 0,
 		owned = { marker_sun = true, card_cloud = true },
 		equipped = { marker = "marker_sun", card = "card_cloud" },
-		settings = { autoMark = false, reducedMotion = false },
+		settings = { autoMark = false, reducedMotion = false, musicVolume = 0.5, sfxVolume = 0.7 },
 	}
 end
 
@@ -49,6 +49,12 @@ function Economy.normalize(raw, catalog)
 	if type(raw.settings) == "table" then
 		profile.settings.autoMark = raw.settings.autoMark == true
 		profile.settings.reducedMotion = raw.settings.reducedMotion == true
+		for _, key in ipairs({ "musicVolume", "sfxVolume" }) do
+			local value = raw.settings[key]
+			if type(value) == "number" and value == value and math.abs(value) < math.huge then
+				profile.settings[key] = math.clamp(value, 0, 1)
+			end
+		end
 	end
 	return profile
 end
