@@ -10,6 +10,8 @@ A playable Roblox prototype about shared sky draws, satisfying stamps, and a coz
 4. Choose either delivery objective, mark matching numbers, and complete a horizontal row. Try **Auto-mark** and the **Tailwind Switch** preview.
 5. Let the round finish. Verify the reward breakdown, then spend earned Pesos in **Cosmetic wardrobe**.
 
+The place now contains its `CloudpopUI` directly in `StarterGui`, including a visible startup screen. The client waits for replicated modules and remotes with timeouts and displays a startup error if initialization fails. Download the latest rebuilt file if you have the older version that only showed the workshop.
+
 No plugin, external models, API key, or paid asset is needed. An unpublished place runs in **Studio practice**: balances and cosmetics reset when the session stops. Do not enable cloud saving just to try the game.
 
 **Start with this one playtest.** Then follow [the Studio guide](docs/STUDIO_GUIDE.md) for two-client testing, touch layouts, and persistence.
@@ -75,6 +77,6 @@ That requires Git, Make, a C++ compiler, Python 3, and HTTPS access to GitHub. I
 LUAU_BIN=/path/to/luau LUAU_COMPILE_BIN=/path/to/luau-compile python3 tools/check.py
 ```
 
-The tests execute the real rule modules, the real persistence module against a mock DataStore, and the actual server controller against simulated Roblox services. They test malformed/stale requests, duplicate rewards, card distribution, swaps, profile conflicts, failed saves, late joins, and leaving. They do **not** substitute for Roblox Studio's renderer, networking, or live DataStore tests.
+The tests execute the real rule modules, the real persistence module against a mock DataStore, and the actual server controller and client initializer against simulated Roblox services. They test client startup and missing dependencies, malformed/stale requests, duplicate rewards, card distribution, swaps, profile conflicts, failed saves, late joins, and leaving. They do **not** substitute for Roblox Studio's renderer, networking, or live DataStore tests.
 
 The `.rbxlx` output embeds all source and is reproducible; its SHA-256 is beside it. Open the latest rebuilt output after source changes. If you use Rojo, `rojo serve` with `default.project.json` provides an optional live-sync workflow; Rojo is not required for the packaged place.

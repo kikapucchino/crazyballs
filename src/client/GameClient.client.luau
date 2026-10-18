@@ -1,15 +1,31 @@
+-- The ScreenGui and startup message are packaged in StarterGui, so they appear
+-- even before dependencies replicate or if initialization fails.
+local gui = script.Parent
+local startup = gui:WaitForChild("StartupStatus", 10)
+if not startup then
+	warn("Cloudpop: the packaged StartupStatus is missing. Open the complete place file.")
+	return
+end
+
+local function initialize()
+local function dependency(parent, name)
+	local child = parent:WaitForChild(name, 15)
+	if not child then error("Timed out waiting for " .. parent:GetFullName() .. "." .. name, 0) end
+	return child
+end
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
 local player = Players.LocalPlayer
-local Shared = ReplicatedStorage:WaitForChild("Cloudpop")
-local Config = require(Shared.Config)
-local Economy = require(Shared.Economy)
-local remotes = Shared:WaitForChild("Remotes")
-local action = remotes:WaitForChild("Action")
-local stateEvent = remotes:WaitForChild("State")
+local Shared = dependency(ReplicatedStorage, "Cloudpop")
+local Config = require(dependency(Shared, "Config"))
+local Economy = require(dependency(Shared, "Economy"))
+local remotes = dependency(Shared, "Remotes")
+local action = dependency(remotes, "Action")
+local stateEvent = dependency(remotes, "State")
 
 local C = {
 	ink = Color3.fromRGB(30, 71, 75), muted = Color3.fromRGB(87, 119, 119),
@@ -66,8 +82,7 @@ local function fire(name, a, b, c)
 	if current then action:FireServer(name, a, b, c, current.roundId) end
 end
 
-local gui = create("ScreenGui", { Name = "CloudpopUI", ResetOnSpawn = false,
-	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 10 }, player:WaitForChild("PlayerGui"))
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 local background = create("Frame", { Name = "Background", Size = UDim2.fromScale(1, 1),
 	BackgroundColor3 = C.background, BorderSizePixel = 0 }, gui)
 create("UIGradient", { Rotation = 35, Color = ColorSequence.new(C.background, Color3.fromRGB(210, 230, 230)) }, background)
@@ -466,3 +481,14 @@ task.spawn(function()
 		task.wait(2)
 	end
 end)
+
+startup.Visible = false
+end
+
+local ok, problem = xpcall(initialize, debug.traceback)
+if not ok then
+	startup.Visible = true
+	startup.Text = "Cloudpop couldn't finish opening.\nStop the test, then press Play again.\n\n"
+		.. (string.match(tostring(problem), "[^\n]+") or "Startup error")
+	warn("Cloudpop startup failed:\n" .. tostring(problem))
+end

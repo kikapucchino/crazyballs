@@ -730,33 +730,47 @@ return Workshop
       </Item>
     </Item>
   </Item>
-  <Item class="StarterPlayer" referent="RBX11">
+  <Item class="StarterGui" referent="RBX11">
     <Properties>
-      <string name="Name">StarterPlayer</string>
+      <string name="Name">StarterGui</string>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="RBX12">
+    <Item class="ScreenGui" referent="RBX12">
       <Properties>
-        <string name="Name">StarterPlayerScripts</string>
+        <string name="Name">CloudpopUI</string>
+        <bool name="ResetOnSpawn">false</bool>
+        <int name="DisplayOrder">10</int>
       </Properties>
-      <Item class="Folder" referent="RBX13">
+      <Item class="LocalScript" referent="RBX13">
         <Properties>
-          <string name="Name">CloudpopClient</string>
-        </Properties>
-        <Item class="LocalScript" referent="RBX14">
-          <Properties>
-            <string name="Name">GameClient</string>
-            <ProtectedString name="Source">local Players = game:GetService("Players")
+          <string name="Name">GameClient</string>
+          <ProtectedString name="Source">-- The ScreenGui and startup message are packaged in StarterGui, so they appear
+-- even before dependencies replicate or if initialization fails.
+local gui = script.Parent
+local startup = gui:WaitForChild("StartupStatus", 10)
+if not startup then
+	warn("Cloudpop: the packaged StartupStatus is missing. Open the complete place file.")
+	return
+end
+
+local function initialize()
+local function dependency(parent, name)
+	local child = parent:WaitForChild(name, 15)
+	if not child then error("Timed out waiting for " .. parent:GetFullName() .. "." .. name, 0) end
+	return child
+end
+
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
 local player = Players.LocalPlayer
-local Shared = ReplicatedStorage:WaitForChild("Cloudpop")
-local Config = require(Shared.Config)
-local Economy = require(Shared.Economy)
-local remotes = Shared:WaitForChild("Remotes")
-local action = remotes:WaitForChild("Action")
-local stateEvent = remotes:WaitForChild("State")
+local Shared = dependency(ReplicatedStorage, "Cloudpop")
+local Config = require(dependency(Shared, "Config"))
+local Economy = require(dependency(Shared, "Economy"))
+local remotes = dependency(Shared, "Remotes")
+local action = dependency(remotes, "Action")
+local stateEvent = dependency(remotes, "State")
 
 local C = {
 	ink = Color3.fromRGB(30, 71, 75), muted = Color3.fromRGB(87, 119, 119),
@@ -813,8 +827,7 @@ local function fire(name, a, b, c)
 	if current then action:FireServer(name, a, b, c, current.roundId) end
 end
 
-local gui = create("ScreenGui", { Name = "CloudpopUI", ResetOnSpawn = false,
-	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 10 }, player:WaitForChild("PlayerGui"))
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 local background = create("Frame", { Name = "Background", Size = UDim2.fromScale(1, 1),
 	BackgroundColor3 = C.background, BorderSizePixel = 0 }, gui)
 create("UIGradient", { Rotation = 35, Color = ColorSequence.new(C.background, Color3.fromRGB(210, 230, 230)) }, background)
@@ -1213,10 +1226,47 @@ task.spawn(function()
 		task.wait(2)
 	end
 end)
+
+startup.Visible = false
+end
+
+local ok, problem = xpcall(initialize, debug.traceback)
+if not ok then
+	startup.Visible = true
+	startup.Text = "Cloudpop couldn't finish opening.\nStop the test, then press Play again.\n\n"
+		.. (string.match(tostring(problem), "[^\n]+") or "Startup error")
+	warn("Cloudpop startup failed:\n" .. tostring(problem))
+end
 </ProtectedString>
-            <bool name="Disabled">false</bool>
-          </Properties>
-        </Item>
+          <bool name="Disabled">false</bool>
+        </Properties>
+      </Item>
+      <Item class="TextLabel" referent="RBX14">
+        <Properties>
+          <string name="Name">StartupStatus</string>
+          <string name="Text">CLOUDPOP COMMONS
+Opening your sky workshop…</string>
+          <float name="TextSize">22</float>
+          <bool name="TextWrapped">true</bool>
+          <UDim2 name="Size">
+            <XS>1</XS>
+            <XO>0</XO>
+            <YS>1</YS>
+            <YO>0</YO>
+          </UDim2>
+          <Color3 name="BackgroundColor3">
+            <R>0.882353</R>
+            <G>0.937255</G>
+            <B>0.898039</B>
+          </Color3>
+          <Color3 name="TextColor3">
+            <R>0.117647</R>
+            <G>0.278431</G>
+            <B>0.294118</B>
+          </Color3>
+          <int name="BorderSizePixel">0</int>
+          <int name="ZIndex">20</int>
+        </Properties>
       </Item>
     </Item>
   </Item>

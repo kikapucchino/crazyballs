@@ -30,6 +30,13 @@ def main():
         server_source = (ROOT / 'src/server/GameServer.server.luau').read_text()
         (generated / 'ServerHarness.luau').write_text(
             'return function(game, workspace, task, Instance, Random, require, script, os)\n' + server_source + '\nend\n')
+        client_source = (ROOT / 'src/client/GameClient.client.luau').read_text()
+        globals_ = ('game', 'script', 'workspace', 'task', 'Instance', 'require', 'warn',
+                    'Color3', 'ColorSequence', 'UDim', 'UDim2', 'Vector2', 'Vector3',
+                    'CFrame', 'Enum', 'TweenInfo')
+        bindings = '\n'.join(f'local {name} = environment.{name}' for name in globals_)
+        (generated / 'ClientHarness.luau').write_text(
+            'return function(environment)\n' + bindings + '\n' + client_source + '\nend\n')
         sources = sorted((ROOT / 'src').rglob('*.luau')) + sorted((ROOT / 'tests').rglob('*.luau'))
         for source in sources:
             result = subprocess.run([compiler, '--null', str(source)], cwd=ROOT, capture_output=True, text=True)

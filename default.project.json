@@ -8,9 +8,24 @@
     "ServerScriptService": {
       "CloudpopServer": { "$path": "src/server" }
     },
-    "StarterPlayer": {
-      "StarterPlayerScripts": {
-        "CloudpopClient": { "$path": "src/client" }
+    "StarterGui": {
+      "CloudpopUI": {
+        "$className": "ScreenGui",
+        "$path": "src/client",
+        "$properties": { "ResetOnSpawn": false, "DisplayOrder": 10 },
+        "StartupStatus": {
+          "$className": "TextLabel",
+          "$properties": {
+            "Text": "CLOUDPOP COMMONS\nOpening your sky workshop…",
+            "TextSize": 22,
+            "TextWrapped": true,
+            "Size": { "UDim2": [[1, 0], [1, 0]] },
+            "BackgroundColor3": { "Color3": [0.882353, 0.937255, 0.898039] },
+            "TextColor3": { "Color3": [0.117647, 0.278431, 0.294118] },
+            "BorderSizePixel": 0,
+            "ZIndex": 20
+          }
+        }
       }
     }
   }

@@ -33,17 +33,40 @@ def add_source(parent, source, counter):
         ET.SubElement(properties, 'bool', {'name': 'Disabled'}).text = 'false'
 
 
+def add_property(properties, name, value):
+    if isinstance(value, bool):
+        ET.SubElement(properties, 'bool', {'name': name}).text = str(value).lower()
+    elif isinstance(value, str):
+        ET.SubElement(properties, 'string', {'name': name}).text = value
+    elif isinstance(value, (int, float)):
+        tag = 'int' if name in {'DisplayOrder', 'ZIndex', 'BorderSizePixel'} else 'float'
+        ET.SubElement(properties, tag, {'name': name}).text = str(value)
+    elif isinstance(value, dict) and set(value) == {'UDim2'}:
+        node = ET.SubElement(properties, 'UDim2', {'name': name})
+        x, y = value['UDim2']
+        for key, component in zip(('XS', 'XO', 'YS', 'YO'), (*x, *y)):
+            ET.SubElement(node, key).text = str(component)
+    elif isinstance(value, dict) and set(value) == {'Color3'}:
+        node = ET.SubElement(properties, 'Color3', {'name': name})
+        for key, component in zip(('R', 'G', 'B'), value['Color3']):
+            ET.SubElement(node, key).text = str(component)
+    else:
+        raise ValueError(f'Unsupported project property: {name} = {value!r}')
+
+
 def build(destination):
     project = json.loads((ROOT / 'default.project.json').read_text())
     root = ET.Element('roblox', {'version': '4'})
     ET.SubElement(root, 'External').text = 'null'
     ET.SubElement(root, 'External').text = 'nil'
     counter = [0]
-    services = {'ReplicatedStorage', 'ServerScriptService', 'StarterPlayer', 'StarterPlayerScripts'}
+    services = {'ReplicatedStorage', 'ServerScriptService', 'StarterPlayer', 'StarterPlayerScripts', 'StarterGui'}
 
     def traverse(parent, name, description):
         class_name = description.get('$className', name if name in services else 'Folder')
-        node, _ = item(parent, class_name, name, counter)
+        node, properties = item(parent, class_name, name, counter)
+        for property_name, value in description.get('$properties', {}).items():
+            add_property(properties, property_name, value)
         if '$path' in description:
             directory = ROOT / description['$path']
             for path in sorted(directory.iterdir()):

@@ -22,11 +22,25 @@ class PlaceTests(unittest.TestCase):
             self.assertEqual(len(embedded), len(sources))
             self.assertEqual({node.text for node in embedded}, set(sources))
             scripts = root.findall('./Item[@class="ServerScriptService"]//Item[@class="Script"]')
-            clients = root.findall('./Item[@class="StarterPlayer"]//Item[@class="LocalScript"]')
+            clients = root.findall('./Item[@class="StarterGui"]/Item[@class="ScreenGui"]/Item[@class="LocalScript"]')
             self.assertEqual(len(scripts), 1)
             self.assertEqual(len(clients), 1)
             self.assertEqual(len(root.findall('./Item[@class="ReplicatedStorage"]//Item[@class="ModuleScript"]')), 3)
             self.assertEqual(root.attrib['version'], '4')
+
+    def test_startup_interface_is_packaged_without_running_any_script(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / 'CloudpopCommons.rbxlx'
+            builder.build(destination)
+            root = ET.parse(destination).getroot()
+            gui = root.find('./Item[@class="StarterGui"]/Item[@class="ScreenGui"]')
+            self.assertIsNotNone(gui)
+            self.assertEqual(gui.findtext('./Properties/bool[@name="ResetOnSpawn"]'), 'false')
+            status = gui.find('./Item[@class="TextLabel"]/Properties')
+            self.assertEqual(status.findtext('./string[@name="Name"]'), 'StartupStatus')
+            self.assertIn('CLOUDPOP COMMONS', status.findtext('./string[@name="Text"]'))
+            self.assertEqual(status.findtext('./UDim2[@name="Size"]/XS'), '1')
+            self.assertEqual(status.findtext('./UDim2[@name="Size"]/YS'), '1')
 
     def test_place_is_reproducible_and_checksum_matches(self):
         with tempfile.TemporaryDirectory() as directory:

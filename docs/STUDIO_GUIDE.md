@@ -32,16 +32,18 @@ ServerScriptService
     ├── GameServer                   Script
     ├── ProfileStore                 ModuleScript
     └── Workshop                     ModuleScript
-StarterPlayer
-└── StarterPlayerScripts
-    └── CloudpopClient               Folder
-        └── GameClient               LocalScript
+StarterGui
+└── CloudpopUI                       ScreenGui (ResetOnSpawn = false)
+    ├── StartupStatus                TextLabel
+    └── GameClient                   LocalScript
 Workspace
 Lighting
 SoundService
 ```
 
-During Play, the server creates `ReplicatedStorage.Cloudpop.Remotes.Action` and `.State` as RemoteEvents and `Workspace.CloudpopWorkshop` as a Model. The client creates `Players.<you>.PlayerGui.CloudpopUI` as a ScreenGui and `SoundService.SoftDrawPing` as a Sound. Do not manually duplicate these runtime instances.
+During Play, Roblox clones `StarterGui.CloudpopUI` into `Players.<you>.PlayerGui`. Its LocalScript builds the game interface inside that ScreenGui. The server creates `ReplicatedStorage.Cloudpop.Remotes.Action` and `.State` as RemoteEvents and `Workspace.CloudpopWorkshop` as a Model. The client also creates `SoundService.SoftDrawPing` as a Sound. Do not manually duplicate these runtime instances.
+
+The packaged startup message is visible before any modules load. The client waits for modules and remotes with timeouts; a startup failure leaves a readable message instead of only the 3D workshop. The first error line appears on screen, and the full stack trace is recorded in Studio's Output panel.
 
 The authoritative deck and balances live only on the server. The client receives only the draw history and its own card/profile view. The client sends intentions, never a reward amount or price. The server checks phase, round ID, indices, ownership, and draw eligibility and rate-limits requests.
 
