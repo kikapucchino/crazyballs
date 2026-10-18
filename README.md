@@ -12,7 +12,7 @@ A playable Roblox prototype about shared sky draws, satisfying stamps, and a coz
 4. Choose either delivery objective, mark matching numbers, and complete a horizontal row. Try **Auto-mark** and the **Tailwind Switch** preview.
 5. Let the round finish. Verify the reward breakdown, then spend earned Pesos in **Cosmetic wardrobe**.
 
-The place contains its `CloudpopUI` directly in `StarterGui`, including a visible startup screen. Build **0.1.2** is produced by Rojo's standard Roblox serializer; download the binary `.rbxl` rather than an older hand-built XML file. No plugin is needed to open it. The client reports startup stages, waits for dependencies with timeouts, and displays initialization errors. The `.rbxlx` download is also regenerated with Rojo for compatibility.
+The place contains its `CloudpopUI` directly in `StarterGui`, including a visible startup screen. Build **0.1.3** fixes the server startup failure caused by attempting to change Roblox's restricted `FallenPartsDestroyHeight` property from a running script. The setting is now saved in the place itself. Download the latest binary `.rbxl` or Studio ZIP. No plugin is needed to open it. Both place formats are built with Rojo; the client reports startup stages and initialization errors.
 
 No plugin, external models, API key, or paid asset is needed. An unpublished place runs in **Studio practice**: balances and cosmetics reset when the session stops. Do not enable cloud saving just to try the game.
 

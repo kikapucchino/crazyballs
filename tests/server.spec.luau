@@ -1,6 +1,7 @@
 -- Executes the actual server controller with deterministic scheduling and mock services.
 -- This verifies protocol behavior; Studio remains required for real Roblox integration.
 local runServer = require("./.generated/ServerHarness")
+local loadWorkshop = require("./.generated/WorkshopHarness")
 local Rules = require("../src/shared/GameRules")
 local Economy = require("../src/shared/Economy")
 local Config = require("../src/shared/Config")
@@ -91,16 +92,33 @@ end
 function profileStore.writable(profile) return profile and not profile.closing end
 function profileStore.save() return true end
 function profileStore.close(profile) profile.closing = true end
-local modules = { Config = Config, Rules = Rules, Economy = Economy, ProfileStore = profileStore,
-	Workshop = { build = function() end } }
-local services = { Players = players, ReplicatedStorage = { WaitForChild = function() return shared end } }
+local modules = { Config = Config, Rules = Rules, Economy = Economy, ProfileStore = profileStore }
+local services = { Players = players, ReplicatedStorage = { WaitForChild = function() return shared end }, Lighting = {} }
 local shutdown
 local gameMock = {
 	GetService = function(_, name) return services[name] end,
 	BindToClose = function(_, callback) shutdown = callback end,
 }
+local workspaceMock = setmetatable({
+	GetServerTimeNow = function() return scheduler.now end,
+	FindFirstChild = function(self, name) return rawget(self, name) end,
+}, {
+	__newindex = function(self, name, value)
+		-- Roblox permits this write only in Studio properties, plugins or the command bar.
+		if name == "FallenPartsDestroyHeight" then
+			error("FallenPartsDestroyHeight cannot be written by a runtime game script")
+		end
+		rawset(self, name, value)
+	end,
+})
+local function tuple(...) return { ... } end
+modules.Workshop = loadWorkshop(gameMock, workspaceMock, instance,
+	{ new = tuple }, { fromRGB = tuple }, {
+		Material = { SmoothPlastic = "SmoothPlastic" },
+		SurfaceType = { Smooth = "Smooth" }, PartType = { Ball = "Ball" },
+	})
 taskMock.spawn(function()
-	runServer(gameMock, { GetServerTimeNow = function() return scheduler.now end }, taskMock, instance,
+	runServer(gameMock, workspaceMock, taskMock, instance,
 		{ new = function() return { NextInteger = function(_, low, high) return math.random(low, high) end } end },
 		function(name) return assert(modules[name], name) end,
 		{ Parent = { ProfileStore = "ProfileStore", Workshop = "Workshop" } }, { clock = function() return scheduler.now end })
@@ -115,6 +133,9 @@ local function untilPhase(name)
 	assert(snapshots[ada].phase == name, "phase timeout: " .. name)
 end
 advance(1.1)
+check(workspaceMock.CloudpopWorkshop and workspaceMock.CloudpopWorkshop.WelcomeMat
+	and shared.Remotes and shared.Remotes.Action and shared.Remotes.State,
+	"real workshop initialization completes and the server publishes both remotes")
 check(#snapshots[ada].cards == 2 and #snapshots[ben].cards == 2, "every player receives two free cards")
 check(snapshots[ada].deck == nil and #snapshots[ada].history == 0, "snapshots do not expose future draws")
 request(ada, "Goal", "twins", nil, nil, -100)

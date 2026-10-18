@@ -30,6 +30,9 @@ def main():
         server_source = (ROOT / 'src/server/GameServer.server.luau').read_text()
         (generated / 'ServerHarness.luau').write_text(
             'return function(game, workspace, task, Instance, Random, require, script, os)\n' + server_source + '\nend\n')
+        workshop_source = (ROOT / 'src/server/Workshop.luau').read_text()
+        (generated / 'WorkshopHarness.luau').write_text(
+            'return function(game, workspace, Instance, Vector3, Color3, Enum)\n' + workshop_source + '\nend\n')
         client_source = (ROOT / 'src/client/GameClient.client.luau').read_text()
         globals_ = ('game', 'script', 'workspace', 'task', 'Instance', 'require', 'warn',
                     'Color3', 'ColorSequence', 'UDim', 'UDim2', 'Vector2', 'Vector3',

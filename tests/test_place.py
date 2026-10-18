@@ -27,6 +27,10 @@ class PlaceTests(unittest.TestCase):
             self.assertEqual(len(clients), 1)
             self.assertEqual(len(root.findall('./Item[@class="ReplicatedStorage"]//Item[@class="ModuleScript"]')), 3)
             self.assertEqual(root.attrib['version'], '4')
+            workspace = root.find('./Item[@class="Workspace"]/Properties')
+            height = workspace.find('./*[@name="FallenPartsDestroyHeight"]')
+            self.assertIsNotNone(height, 'The restricted height property must be saved in the place')
+            self.assertEqual(float(height.text), -100)
 
     def test_binary_place_has_the_roblox_binary_header(self):
         with tempfile.TemporaryDirectory() as directory:

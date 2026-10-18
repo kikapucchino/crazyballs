@@ -58,7 +58,8 @@ function Workshop.build()
 	lighting.ClockTime = 14
 	lighting.Brightness = 2
 	lighting.Ambient = Color3.fromRGB(160, 182, 191)
-	workspace.FallenPartsDestroyHeight = -100
+	-- FallenPartsDestroyHeight is set in default.project.json. Roblox permits
+	-- changing it through Studio properties/plugins, not a running game script.
 end
 
 return Workshop

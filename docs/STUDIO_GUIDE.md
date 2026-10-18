@@ -1,6 +1,6 @@
 # Studio playtesting, one step at a time
 
-Complete each step before moving to the next. The project is already assembled in `dist/CloudpopCommons.rbxl` using Rojo's standard serializer. Use this binary file for build 0.1.2; no plugin or manual setup is required to open it.
+Complete each step before moving to the next. The project is already assembled in `dist/CloudpopCommons.rbxl` using Rojo's standard serializer. Use this binary file for build 0.1.3; no plugin or manual setup is required to open it.
 
 ## 1. Open the prototype and play one round
 
@@ -43,7 +43,9 @@ SoundService
 
 During Play, Roblox clones `StarterGui.CloudpopUI` into `Players.<you>.PlayerGui`. Its LocalScript builds the game interface inside that ScreenGui. The server creates `ReplicatedStorage.Cloudpop.Remotes.Action` and `.State` as RemoteEvents and `Workspace.CloudpopWorkshop` as a Model. The client also creates `SoundService.SoftDrawPing` as a Sound. Do not manually duplicate these runtime instances.
 
-The packaged startup message is visible before any modules load. Build 0.1.2 initially says **Waiting for the client script to start**. When the LocalScript begins, that changes to **Client started**, followed by the dependency being loaded. An unchanged initial message means the LocalScript has not reached initialization; check Output for compile or script-execution errors. This is different from a running client waiting for server data.
+The packaged startup message is visible before any modules load. Build 0.1.3 initially says **Waiting for the client script to start**. When the LocalScript begins, that changes to **Client started**, followed by the dependency being loaded. An unchanged initial message means the LocalScript has not reached initialization; check Output for compile or script-execution errors. This is different from a running client waiting for server data.
+
+If an older build reports **Timed out waiting for ReplicatedStorage.Cloudpop.Remotes**, replace it with build 0.1.3. The workshop previously attempted to set `Workspace.FallenPartsDestroyHeight` at runtime, which Roblox forbids. The server stopped before creating its remotes. The height is now serialized in the place and is never assigned by a game script. The server regression suite runs the actual workshop with this runtime restriction enforced.
 
 The client waits for modules and remotes with timeouts. If initialization throws, the first error line appears on screen and the full stack trace is recorded in Studio's Output panel. These diagnostics do not establish that a Studio-specific problem has been fixed until the game successfully starts there.
 

@@ -724,7 +724,8 @@ function Workshop.build()
 	lighting.ClockTime = 14
 	lighting.Brightness = 2
 	lighting.Ambient = Color3.fromRGB(160, 182, 191)
-	workspace.FallenPartsDestroyHeight = -100
+	-- FallenPartsDestroyHeight is set in default.project.json. Roblox permits
+	-- changing it through Studio properties/plugins, not a running game script.
 end
 
 return Workshop
@@ -759,11 +760,11 @@ if not startup then
 	warn("Cloudpop: the packaged StartupStatus is missing. Open the complete place file.")
 	return
 end
-startup.Text = "CLOUDPOP COMMONS · build 0.1.2\nClient started. Connecting to the workshop…"
+startup.Text = "CLOUDPOP COMMONS · build 0.1.3\nClient started. Connecting to the workshop…"
 
 local function initialize()
 local function dependency(parent, name)
-	startup.Text = "CLOUDPOP COMMONS · build 0.1.2\nLoading " .. name .. "…"
+	startup.Text = "CLOUDPOP COMMONS · build 0.1.3\nLoading " .. name .. "…"
 	local child = parent:WaitForChild(name, 15)
 	if not child then error("Timed out waiting for " .. parent:GetFullName() .. "." .. name, 0) end
 	return child
@@ -781,7 +782,7 @@ local Economy = require(dependency(Shared, "Economy"))
 local remotes = dependency(Shared, "Remotes")
 local action = dependency(remotes, "Action")
 local stateEvent = dependency(remotes, "State")
-startup.Text = "CLOUDPOP COMMONS · build 0.1.2\nBuilding your cards…"
+startup.Text = "CLOUDPOP COMMONS · build 0.1.3\nBuilding your cards…"
 
 local C = {
 	ink = Color3.fromRGB(30, 71, 75), muted = Color3.fromRGB(87, 119, 119),
@@ -1266,7 +1267,7 @@ end
             <YS>1</YS>
             <YO>0</YO>
           </UDim2>
-          <string name="Text">CLOUDPOP COMMONS · build 0.1.2
+          <string name="Text">CLOUDPOP COMMONS · build 0.1.3
 Waiting for the client script to start…</string>
           <Color3 name="TextColor3">
             <R>0.117647</R>
@@ -1283,6 +1284,7 @@ Waiting for the client script to start…</string>
   <Item class="Workspace" referent="16">
     <Properties>
       <string name="Name">Workspace</string>
+      <float name="FallenPartsDestroyHeight">-100</float>
       <bool name="NeedsPivotMigration">false</bool>
       <bool name="StreamingEnabled">false</bool>
     </Properties>
