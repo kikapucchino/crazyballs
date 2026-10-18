@@ -1,0 +1,1240 @@
+<?xml version='1.0' encoding='utf-8'?>
+<roblox version="4">
+  <External>null</External>
+  <External>nil</External>
+  <Item class="ReplicatedStorage" referent="RBX1">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="Folder" referent="RBX2">
+      <Properties>
+        <string name="Name">Cloudpop</string>
+      </Properties>
+      <Item class="ModuleScript" referent="RBX3">
+        <Properties>
+          <string name="Name">Config</string>
+          <ProtectedString name="Source">-- Shared presentation and tuning. The server owns every outcome.
+return {
+	Title = "Cloudpop Commons",
+	DataStoreName = "CloudpopProfiles_v1",
+	IntermissionSeconds = 12,
+	DrawSeconds = 5,
+	DrawCount = 18,
+	EventAfterDraw = 8,
+	EventSeconds = 18,
+	ResultsSeconds = 12,
+	NumberPool = 24,
+	Rewards = { Participation = 20, Pattern = 15, Objective = 10 },
+	Goals = {
+		trail = { name = "Number trail", description = "Mark 5 different numbers", short = "5 different numbers" },
+		twins = { name = "Double delivery", description = "Mark the same number on both cards", short = "One number on both cards" },
+	},
+	Catalog = {
+		{ id = "marker_sun", name = "Sunbeam", category = "marker", price = 0, color = { 255, 199, 88 }, description = "A warm golden stamp" },
+		{ id = "marker_berry", name = "Berry pop", category = "marker", price = 60, color = { 236, 128, 166 }, description = "A soft berry-pink stamp" },
+		{ id = "marker_mint", name = "Mint breeze", category = "marker", price = 60, color = { 112, 222, 183 }, description = "A fresh mint-green stamp" },
+		{ id = "card_cloud", name = "Cloud cream", category = "card", price = 0, color = { 255, 248, 232 }, description = "The original cream card" },
+		{ id = "card_lilac", name = "Lilac post", category = "card", price = 150, color = { 233, 222, 252 }, description = "A lavender card frame" },
+		{ id = "card_sea", name = "Sea glass", category = "card", price = 150, color = { 205, 240, 228 }, description = "A sea-green card frame" },
+	},
+}
+</ProtectedString>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="RBX4">
+        <Properties>
+          <string name="Name">Economy</string>
+          <ProtectedString name="Source">local Economy = {}
+
+function Economy.defaults()
+	return {
+		version = 1,
+		pesos = 0,
+		rounds = 0,
+		owned = { marker_sun = true, card_cloud = true },
+		equipped = { marker = "marker_sun", card = "card_cloud" },
+		settings = { autoMark = false, reducedMotion = false },
+	}
+end
+
+function Economy.find(catalog, id)
+	for _, item in ipairs(catalog) do
+		if item.id == id then
+			return item
+		end
+	end
+	return nil
+end
+
+local function nonnegativeInteger(value)
+	if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
+		return 0
+	end
+	return math.clamp(math.floor(value), 0, 1000000000)
+end
+
+function Economy.normalize(raw, catalog)
+	local profile = Economy.defaults()
+	if type(raw) ~= "table" then
+		return profile
+	end
+	profile.pesos = nonnegativeInteger(raw.pesos)
+	profile.rounds = nonnegativeInteger(raw.rounds)
+	for _, item in ipairs(catalog) do
+		if type(raw.owned) == "table" and raw.owned[item.id] == true then
+			profile.owned[item.id] = true
+		end
+	end
+	for _, category in ipairs({ "marker", "card" }) do
+		local id = if type(raw.equipped) == "table" then raw.equipped[category] else nil
+		local item = Economy.find(catalog, id)
+		if item and item.category == category and profile.owned[id] then
+			profile.equipped[category] = id
+		end
+	end
+	if type(raw.settings) == "table" then
+		profile.settings.autoMark = raw.settings.autoMark == true
+		profile.settings.reducedMotion = raw.settings.reducedMotion == true
+	end
+	return profile
+end
+
+function Economy.purchase(profile, catalog, id)
+	if type(id) ~= "string" then
+		return false, "Unknown item."
+	end
+	local item = Economy.find(catalog, id)
+	if not item then
+		return false, "Unknown item."
+	end
+	if profile.owned[id] then
+		profile.equipped[item.category] = id
+		return true, item.name .. " equipped."
+	end
+	if profile.pesos &lt; item.price then
+		return false, "Save " .. (item.price - profile.pesos) .. " more Pesos for " .. item.name .. "."
+	end
+	profile.pesos -= item.price
+	profile.owned[id] = true
+	profile.equipped[item.category] = id
+	return true, item.name .. " purchased and equipped."
+end
+
+return Economy
+</ProtectedString>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="RBX5">
+        <Properties>
+          <string name="Name">GameRules</string>
+          <ProtectedString name="Source">-- Engine-independent rules: also executed by tests/rules.spec.luau.
+local Rules = {}
+
+function Rules.isIndex(value, maximum)
+	return type(value) == "number" and value == value and value % 1 == 0 and value &gt;= 1 and value &lt;= maximum
+end
+
+function Rules.shuffle(count, nextInteger)
+	local deck = {}
+	for number = 1, count do
+		deck[number] = number
+	end
+	for index = count, 2, -1 do
+		local other = nextInteger(1, index)
+		deck[index], deck[other] = deck[other], deck[index]
+	end
+	return deck
+end
+
+function Rules.newCardState(pool, nextInteger)
+	local firstDeck = Rules.shuffle(pool, nextInteger)
+	local secondDeck = Rules.shuffle(pool, nextInteger)
+	local first, second = {}, { firstDeck[1] }
+	for index = 1, 9 do
+		first[index] = firstDeck[index]
+	end
+	-- At least one shared number makes Double Delivery possible on every pair.
+	for _, number in ipairs(secondDeck) do
+		if number ~= second[1] and #second &lt; 9 then
+			table.insert(second, number)
+		end
+	end
+	local positions = Rules.shuffle(9, nextInteger)
+	local mixedSecond = {}
+	for index, position in ipairs(positions) do
+		mixedSecond[index] = second[position]
+	end
+	return {
+		cards = { first, mixedSecond },
+		marks = { {}, {} },
+		claimed = { false, false },
+		goal = "trail",
+		participated = false,
+		swapped = false,
+		settled = false,
+	}
+end
+
+function Rules.mark(state, drawn, cardIndex, cellIndex)
+	if state.settled or not Rules.isIndex(cardIndex, 2) or not Rules.isIndex(cellIndex, 9) then
+		return false
+	end
+	local number = state.cards[cardIndex][cellIndex]
+	if not drawn[number] or state.marks[cardIndex][number] then
+		return false
+	end
+	state.marks[cardIndex][number] = true
+	state.participated = true
+	return true
+end
+
+function Rules.markAll(state, drawn)
+	-- Automatic marks don't count as an interaction for participation rewards.
+	local participated = state.participated
+	for cardIndex, card in ipairs(state.cards) do
+		for cellIndex in ipairs(card) do
+			Rules.mark(state, drawn, cardIndex, cellIndex)
+		end
+	end
+	state.participated = participated
+end
+
+function Rules.claimPatterns(state)
+	local newlyClaimed = 0
+	for cardIndex, card in ipairs(state.cards) do
+		if not state.claimed[cardIndex] then
+			for row = 0, 2 do
+				local offset = row * 3
+				local marks = state.marks[cardIndex]
+				if marks[card[offset + 1]] and marks[card[offset + 2]] and marks[card[offset + 3]] then
+					state.claimed[cardIndex] = true
+					newlyClaimed += 1
+					break
+				end
+			end
+		end
+	end
+	return newlyClaimed
+end
+
+function Rules.swap(state, cardIndex, firstIndex, secondIndex)
+	if state.settled or state.swapped or not Rules.isIndex(cardIndex, 2)
+		or not Rules.isIndex(firstIndex, 9) or not Rules.isIndex(secondIndex, 9) or firstIndex == secondIndex then
+		return false
+	end
+	local card = state.cards[cardIndex]
+	card[firstIndex], card[secondIndex] = card[secondIndex], card[firstIndex]
+	-- Marks are keyed by number and therefore travel with their cells.
+	state.swapped = true
+	state.participated = true
+	return true
+end
+
+function Rules.goalProgress(state)
+	if state.goal == "twins" then
+		for number in pairs(state.marks[1]) do
+			if state.marks[2][number] then
+				return 1, 1
+			end
+		end
+		return 0, 1
+	end
+	local unique = {}
+	for _, marks in ipairs(state.marks) do
+		for number in pairs(marks) do
+			unique[number] = true
+		end
+	end
+	local count = 0
+	for _ in pairs(unique) do
+		count += 1
+	end
+	return math.min(count, 5), 5
+end
+
+function Rules.settle(state, rewards)
+	if state.settled then
+		return nil
+	end
+	state.settled = true
+	local patterns = (if state.claimed[1] then 1 else 0) + (if state.claimed[2] then 1 else 0)
+	local progress, target = Rules.goalProgress(state)
+	-- A player must make at least one choice or valid manual mark this round.
+	local participation = if state.participated then rewards.Participation else 0
+	local patternReward = if state.participated then patterns * rewards.Pattern else 0
+	local objective = if state.participated and progress == target then rewards.Objective else 0
+	return { participation = participation, patterns = patternReward, objective = objective,
+		total = participation + patternReward + objective }
+end
+
+return Rules
+</ProtectedString>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="RBX6">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Folder" referent="RBX7">
+      <Properties>
+        <string name="Name">CloudpopServer</string>
+      </Properties>
+      <Item class="Script" referent="RBX8">
+        <Properties>
+          <string name="Name">GameServer</string>
+          <ProtectedString name="Source">local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Cloudpop")
+local Config = require(Shared.Config)
+local Rules = require(Shared.GameRules)
+local Economy = require(Shared.Economy)
+local Profiles = require(script.Parent.ProfileStore)
+require(script.Parent.Workshop).build()
+
+local remotes = Instance.new("Folder")
+remotes.Name = "Remotes"
+remotes.Parent = Shared
+local action = Instance.new("RemoteEvent")
+action.Name = "Action"
+action.Parent = remotes
+local stateEvent = Instance.new("RemoteEvent")
+stateEvent.Name = "State"
+stateEvent.Parent = remotes
+
+local rng = Random.new()
+local function nextInteger(low, high) return rng:NextInteger(low, high) end
+local profiles, boards, summaries, rateLimits, loading = {}, {}, {}, {}, {}
+local round = { id = 0, phase = "Waiting", deadline = 0, history = {}, drawn = {} }
+local closing = false
+
+local function usable(player)
+	return Profiles.writable(profiles[player])
+end
+
+local function changed(profile)
+	profile.revision = (profile.revision or 0) + 1
+	if not profile.practice then profile.saveStatus = "Changes waiting to save" end
+end
+
+local function send(player, notice)
+	local profile = profiles[player]
+	if not profile or player.Parent ~= Players then return end
+	local board = boards[player]
+	local cardViews = {}
+	if board then
+		for cardIndex, card in ipairs(board.cards) do
+			local cells = {}
+			for _, number in ipairs(card) do
+				table.insert(cells, { number = number, marked = board.marks[cardIndex][number] == true,
+					available = round.drawn[number] == true })
+			end
+			table.insert(cardViews, { cells = cells, complete = board.claimed[cardIndex] })
+		end
+	end
+	local progress, target = 0, 5
+	if board then progress, target = Rules.goalProgress(board) end
+	-- Future draws and other players' profiles never leave the server.
+	stateEvent:FireClient(player, {
+		roundId = round.id, phase = round.phase, deadline = round.deadline,
+		history = round.history, drawCount = Config.DrawCount, cards = cardViews,
+		goal = if board then board.goal else "trail", goalProgress = progress, goalTarget = target,
+		swapped = if board then board.swapped else false,
+		participated = if board then board.participated else false,
+		pesos = profile.data.pesos, rounds = profile.data.rounds,
+		owned = profile.data.owned, equipped = profile.data.equipped, settings = profile.data.settings,
+		saveStatus = profile.saveStatus, practice = profile.practice,
+		players = #Players:GetPlayers(), summary = summaries[player], notice = notice,
+	})
+end
+
+local function broadcast()
+	for player in pairs(profiles) do send(player) end
+end
+
+local function checkPatterns(player)
+	local count = Rules.claimPatterns(boards[player])
+	if count &gt; 0 then
+		send(player, "Row complete! +" .. count * Config.Rewards.Pattern .. " Pesos at round end.")
+	end
+end
+
+local function settle(player)
+	local board, profile = boards[player], profiles[player]
+	if not board or not profile or not usable(player) then return end
+	-- Choosing an objective and leaving before the first draw is not a played round.
+	if #round.history == 0 then return end
+	local summary = Rules.settle(board, Config.Rewards)
+	if not summary then return end
+	profile.data.pesos += summary.total
+	if board.participated then profile.data.rounds += 1 end
+	changed(profile)
+	summaries[player] = summary
+end
+
+local function addPlayer(player)
+	if profiles[player] or loading[player] or closing then return end
+	loading[player] = true
+	local profile, problem = Profiles.load(player)
+	loading[player] = nil
+	if not profile then
+		if player.Parent == Players then player:Kick(problem) end
+		return
+	end
+	if player.Parent ~= Players or closing then
+		Profiles.close(profile)
+		return
+	end
+	profiles[player] = profile
+	if round.phase == "Intermission" then
+		boards[player] = Rules.newCardState(Config.NumberPool, nextInteger)
+	end
+	broadcast()
+end
+
+local function removePlayer(player)
+	local profile = profiles[player]
+	if profile then
+		-- Earned progress is settled even if a player leaves before the results screen.
+		settle(player)
+		Profiles.close(profile)
+	end
+	profiles[player], boards[player], summaries[player], rateLimits[player] = nil, nil, nil, nil
+	broadcast()
+end
+
+action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
+	if type(name) ~= "string" or not profiles[player] then return end
+	local now = os.clock()
+	local budget = rateLimits[player] or { tokens = 16, at = now }
+	budget.tokens = math.min(16, budget.tokens + (now - budget.at) * 8)
+	budget.at = now
+	rateLimits[player] = budget
+	if budget.tokens &lt; 1 then return end
+	budget.tokens -= 1
+	if name == "Sync" then send(player); return end
+	if not usable(player) then send(player, "Saving is reconnecting. Please wait."); return end
+	local profile, board = profiles[player], boards[player]
+	local notice
+	if name == "Cosmetic" then
+		local bought, message = Economy.purchase(profile.data, Config.Catalog, a)
+		if bought then changed(profile) end
+		notice = message
+	elseif name == "Setting" then
+		if (a ~= "autoMark" and a ~= "reducedMotion") or type(b) ~= "boolean" then return end
+		profile.data.settings[a] = b
+		changed(profile)
+		if board and not board.settled then
+			board.participated = true
+			if a == "autoMark" and b then
+				Rules.markAll(board, round.drawn)
+				checkPatterns(player)
+			end
+		end
+	elseif board and requestedRound == round.id and not board.settled then
+		if name == "Goal" and round.phase == "Intermission" and type(a) == "string" and Config.Goals[a] then
+			board.goal = a
+			board.participated = true
+		elseif name == "Mark" and (round.phase == "Drawing" or round.phase == "Event" or round.phase == "LastCall") then
+			if Rules.mark(board, round.drawn, a, b) then checkPatterns(player) end
+		elseif name == "Swap" and round.phase == "Event" then
+			if Rules.swap(board, a, b, c) then
+				checkPatterns(player)
+				notice = "Tailwind delivered! Your marks moved with their numbers."
+			end
+		elseif name == "Keep" and round.phase == "Event" and not board.swapped then
+			board.swapped = true
+			board.participated = true
+			notice = "Layout kept. Enjoy the breeze!"
+		end
+	end
+	send(player, notice)
+end)
+
+Players.PlayerAdded:Connect(addPlayer)
+Players.PlayerRemoving:Connect(removePlayer)
+for _, player in ipairs(Players:GetPlayers()) do task.spawn(addPlayer, player) end
+
+task.spawn(function()
+	while not closing do
+		task.wait(45)
+		for player, profile in pairs(profiles) do
+			if not profile.closing then
+				task.spawn(function()
+					Profiles.save(profile, false)
+					if not profile.closing and not Profiles.writable(profile) then
+						player:Kick("Your cloud save connection was interrupted. Please rejoin shortly.")
+					else
+						send(player)
+					end
+				end)
+			end
+		end
+	end
+end)
+
+local function phase(name, seconds)
+	round.phase = name
+	round.deadline = workspace:GetServerTimeNow() + seconds
+	broadcast()
+	while not closing and workspace:GetServerTimeNow() &lt; round.deadline do task.wait(0.15) end
+end
+
+game:BindToClose(function()
+	closing = true
+	local remaining = 0
+	for player, profile in pairs(profiles) do
+		remaining += 1
+		task.spawn(function()
+			settle(player)
+			Profiles.close(profile)
+			remaining -= 1
+		end)
+	end
+	local timeout = os.clock() + 25
+	while (remaining &gt; 0 or next(loading)) and os.clock() &lt; timeout do task.wait(0.1) end
+end)
+
+while not closing do
+	if next(profiles) == nil then
+		round.phase = "Waiting"
+		task.wait(1)
+		continue
+	end
+	round.id += 1
+	round.history, round.drawn = {}, {}
+	boards, summaries = {}, {}
+	for player in pairs(profiles) do
+		if usable(player) then boards[player] = Rules.newCardState(Config.NumberPool, nextInteger) end
+	end
+	phase("Intermission", Config.IntermissionSeconds)
+	local deck = Rules.shuffle(Config.NumberPool, nextInteger)
+	for index = 1, Config.DrawCount do
+		if closing then break end
+		local number = deck[index]
+		round.drawn[number] = true
+		table.insert(round.history, number)
+		for player, board in pairs(boards) do
+			if usable(player) and profiles[player].data.settings.autoMark then
+				Rules.markAll(board, round.drawn)
+				checkPatterns(player)
+			end
+		end
+		phase("Drawing", Config.DrawSeconds)
+		if index == Config.EventAfterDraw then phase("Event", Config.EventSeconds) end
+	end
+	if closing then break end
+	phase("LastCall", 8)
+	for player in pairs(profiles) do settle(player) end
+	phase("Results", Config.ResultsSeconds)
+end
+</ProtectedString>
+          <bool name="Disabled">false</bool>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="RBX9">
+        <Properties>
+          <string name="Name">ProfileStore</string>
+          <ProtectedString name="Source">local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Cloudpop")
+local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
+
+local Store = {}
+local database
+local LEASE_SECONDS = 300
+
+local function getDatabase()
+	-- GetDataStore can itself fail in an unpublished place. Practice never calls it.
+	if not database then database = DataStoreService:GetDataStore(Config.DataStoreName) end
+	return database
+end
+
+local function retry(operation)
+	for attempt = 1, 3 do
+		local ok, result = pcall(operation)
+		if ok then
+			return true, result
+		end
+		warn("Cloudpop data request failed (attempt " .. attempt .. "). " .. tostring(result))
+		if attempt &lt; 3 then
+			task.wait(attempt * 2)
+		end
+	end
+	return false, nil
+end
+
+function Store.load(player)
+	-- Studio is deliberately session-only unless explicitly opted in on this module.
+	-- Use a separate published TEST experience when enabling Studio saves.
+	if RunService:IsStudio() and script:GetAttribute("EnableStudioSaves") ~= true then
+		return { data = Economy.defaults(), practice = true, saveStatus = "Studio practice · not saved", closing = false }
+	end
+	local token = HttpService:GenerateGUID(false)
+	local key = "player_" .. player.UserId
+	local denial = "Profile is open on another server. Please retry shortly."
+	local ok, record = retry(function()
+		return getDatabase():UpdateAsync(key, function(old)
+			if old ~= nil then
+				if type(old) ~= "table" or type(old.data) ~= "table" or old.data.version ~= 1 then
+					denial = "Your save needs a compatible game version. Please retry later."
+					return nil
+				end
+				if type(old.lock) == "table" and old.lock.id ~= token
+					and type(old.lock.expires) == "number" and old.lock.expires &gt; os.time() then
+					return nil
+				end
+			end
+			return {
+				data = Economy.normalize(if old then old.data else nil, Config.Catalog),
+				lock = { id = token, expires = os.time() + LEASE_SECONDS },
+			}
+		end)
+	end)
+	if not ok then
+		return nil, "Cloud saves are unavailable. Please retry; your existing save has not been replaced."
+	end
+	if not record or not record.lock or record.lock.id ~= token then
+		return nil, denial
+	end
+	return { data = record.data, key = key, token = token, expires = record.lock.expires,
+		practice = false, saving = false, closing = false, saveStatus = "Cloud save connected" }
+end
+
+function Store.writable(profile)
+	return profile and not profile.closing and (profile.practice or os.time() &lt; profile.expires - 30)
+end
+
+function Store.save(profile, release)
+	if profile.practice then
+		return true
+	end
+	while profile.saving do
+		task.wait(0.1)
+	end
+	profile.saving = true
+	local snapshot = Economy.normalize(profile.data, Config.Catalog)
+	local snapshotRevision = profile.revision or 0
+	local ok, result = retry(function()
+		return getDatabase():UpdateAsync(profile.key, function(old)
+			-- Never overwrite another server's session or resurrect a released lock.
+			if type(old) ~= "table" or type(old.lock) ~= "table" or old.lock.id ~= profile.token then
+				return nil
+			end
+			return { data = snapshot, lock = if release then nil else {
+				id = profile.token, expires = os.time() + LEASE_SECONDS,
+			} }
+		end)
+	end)
+	profile.saving = false
+	if ok and result then
+		if not release then
+			profile.expires = result.lock.expires
+		end
+		profile.saveStatus = if (profile.revision or 0) == snapshotRevision then "Progress saved" else "Changes waiting to save"
+		return true
+	end
+	profile.saveStatus = "Save delayed · retrying"
+	return false
+end
+
+function Store.close(profile)
+	if profile.closing then
+		while not profile.closed do task.wait(0.1) end
+		return
+	end
+	profile.closing = true
+	if not Store.save(profile, true) then
+		warn("Cloudpop could not finish a profile save; its session lock will expire automatically.")
+	end
+	profile.closed = true
+end
+
+return Store
+</ProtectedString>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="RBX10">
+        <Properties>
+          <string name="Name">Workshop</string>
+          <ProtectedString name="Source">-- A small original lobby made entirely from Roblox primitives; no external assets.
+local Workshop = {}
+
+function Workshop.build()
+	if workspace:FindFirstChild("CloudpopWorkshop") then
+		return
+	end
+	local model = Instance.new("Model")
+	model.Name = "CloudpopWorkshop"
+	model.Parent = workspace
+	local function part(name, size, position, color, shape)
+		local object = Instance.new("Part")
+		object.Name = name
+		object.Anchored = true
+		object.Size = size
+		object.Position = position
+		object.Color = Color3.fromRGB(table.unpack(color))
+		object.Material = Enum.Material.SmoothPlastic
+		object.TopSurface = Enum.SurfaceType.Smooth
+		object.BottomSurface = Enum.SurfaceType.Smooth
+		if shape then object.Shape = shape end
+		object.Parent = model
+		return object
+	end
+	part("FloatingGarden", Vector3.new(90, 5, 70), Vector3.new(0, -3, 0), { 133, 193, 163 })
+	part("WorkshopFloor", Vector3.new(62, 1, 44), Vector3.new(0, 0, 0), { 242, 223, 187 })
+	for _, x in ipairs({ -29, 29 }) do
+		for _, z in ipairs({ -20, 20 }) do
+			part("Column", Vector3.new(2, 16, 2), Vector3.new(x, 8, z), { 79, 133, 132 })
+		end
+	end
+	part("Canopy", Vector3.new(65, 2, 47), Vector3.new(0, 17, 0), { 243, 174, 131 })
+	part("MachinePedestal", Vector3.new(12, 4, 10), Vector3.new(0, 2.5, -10), { 42, 112, 116 })
+	local globe = part("AirChamber", Vector3.new(9, 9, 9), Vector3.new(0, 9, -10), { 177, 233, 227 }, Enum.PartType.Ball)
+	globe.Transparency = 0.65
+	globe.CanCollide = false
+	for index = 1, 12 do
+		local angle = index * math.pi / 6
+		part("DecorativeBall", Vector3.new(1.4, 1.4, 1.4), Vector3.new(math.cos(angle) * 2.7, 7 + index % 4, -10 + math.sin(angle) * 2.7),
+			if index % 2 == 0 then { 255, 199, 88 } else { 236, 128, 166 }, Enum.PartType.Ball).CanCollide = false
+	end
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name = "WelcomeMat"
+	spawn.Anchored = true
+	spawn.Neutral = true
+	spawn.Duration = 0
+	spawn.Size = Vector3.new(10, 1, 6)
+	spawn.Position = Vector3.new(0, 1, 12)
+	spawn.Color = Color3.fromRGB(255, 199, 88)
+	spawn.Material = Enum.Material.SmoothPlastic
+	spawn.Parent = model
+	for index = 1, 4 do
+		local x = if index % 2 == 0 then 19 else -19
+		local z = if index &lt;= 2 then 5 else -9
+		part("StampingStation", Vector3.new(8, 3, 5), Vector3.new(x, 2, z), { 255, 248, 232 })
+	end
+	local lighting = game:GetService("Lighting")
+	lighting.ClockTime = 14
+	lighting.Brightness = 2
+	lighting.Ambient = Color3.fromRGB(160, 182, 191)
+	workspace.FallenPartsDestroyHeight = -100
+end
+
+return Workshop
+</ProtectedString>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="StarterPlayer" referent="RBX11">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="RBX12">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="Folder" referent="RBX13">
+        <Properties>
+          <string name="Name">CloudpopClient</string>
+        </Properties>
+        <Item class="LocalScript" referent="RBX14">
+          <Properties>
+            <string name="Name">GameClient</string>
+            <ProtectedString name="Source">local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
+local player = Players.LocalPlayer
+local Shared = ReplicatedStorage:WaitForChild("Cloudpop")
+local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
+local remotes = Shared:WaitForChild("Remotes")
+local action = remotes:WaitForChild("Action")
+local stateEvent = remotes:WaitForChild("State")
+
+local C = {
+	ink = Color3.fromRGB(30, 71, 75), muted = Color3.fromRGB(87, 119, 119),
+	background = Color3.fromRGB(225, 239, 229), cream = Color3.fromRGB(255, 248, 232),
+	white = Color3.fromRGB(255, 253, 246), teal = Color3.fromRGB(40, 112, 116),
+	mint = Color3.fromRGB(197, 232, 215), yellow = Color3.fromRGB(255, 199, 88),
+	line = Color3.fromRGB(199, 217, 205), pink = Color3.fromRGB(243, 178, 191),
+}
+local current, swapSelection = nil, {}
+local swapMode, soundOn = false, true
+local activeTab = "Play"
+local render
+
+local function create(className, properties, parent)
+	local object = Instance.new(className)
+	for key, value in pairs(properties) do object[key] = value end
+	object.Parent = parent
+	return object
+end
+
+local function corner(parent, radius)
+	create("UICorner", { CornerRadius = UDim.new(0, radius or 14) }, parent)
+end
+
+local function label(parent, text, size, position, dimensions, color)
+	return create("TextLabel", {
+		BackgroundTransparency = 1, Text = text, TextSize = size or 16,
+		Font = Enum.Font.GothamMedium, TextColor3 = color or C.ink,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center,
+		TextWrapped = true, Position = position or UDim2.new(), Size = dimensions or UDim2.fromScale(1, 1),
+	}, parent)
+end
+
+local function button(parent, text, position, dimensions, callback, background)
+	local object = create("TextButton", {
+		Text = text, Position = position, Size = dimensions,
+		BackgroundColor3 = background or C.teal, TextColor3 = C.white,
+		BorderSizePixel = 0, TextSize = 15, Font = Enum.Font.GothamBold,
+		TextWrapped = true, AutoButtonColor = true,
+	}, parent)
+	corner(object, 12)
+	object.Activated:Connect(callback)
+	return object
+end
+
+local function panel(parent, name, height, order, color)
+	local frame = create("Frame", { Name = name, BackgroundColor3 = color or C.cream,
+		BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, height), LayoutOrder = order }, parent)
+	corner(frame, 18)
+	return frame
+end
+
+local function fire(name, a, b, c)
+	if current then action:FireServer(name, a, b, c, current.roundId) end
+end
+
+local gui = create("ScreenGui", { Name = "CloudpopUI", ResetOnSpawn = false,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 10 }, player:WaitForChild("PlayerGui"))
+local background = create("Frame", { Name = "Background", Size = UDim2.fromScale(1, 1),
+	BackgroundColor3 = C.background, BorderSizePixel = 0 }, gui)
+create("UIGradient", { Rotation = 35, Color = ColorSequence.new(C.background, Color3.fromRGB(210, 230, 230)) }, background)
+local scroll = create("ScrollingFrame", { Name = "Page", AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(1, -24, 1, 0),
+	BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
+	ScrollBarImageColor3 = C.teal, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	ScrollingDirection = Enum.ScrollingDirection.Y }, background)
+create("UISizeConstraint", { MaxSize = Vector2.new(840, math.huge) }, scroll)
+create("UIPadding", { PaddingTop = UDim.new(0, 14), PaddingBottom = UDim.new(0, 26) }, scroll)
+create("UIListLayout", { Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder }, scroll)
+
+local header = panel(scroll, "Header", 66, 1)
+header.BackgroundTransparency = 1
+local title = label(header, "CLOUDPOP", 26, UDim2.fromOffset(0, 0), UDim2.new(1, -142, 0, 32))
+title.Font = Enum.Font.GothamBlack
+label(header, "C O M M O N S  /  sky workshop", 11, UDim2.fromOffset(0, 31), UDim2.new(1, -135, 0, 28), C.muted)
+local wallet = label(header, "0 Pesos", 21, UDim2.new(1, -132, 0, 0), UDim2.fromOffset(132, 32))
+wallet.TextXAlignment = Enum.TextXAlignment.Right
+wallet.Font = Enum.Font.GothamBold
+local saving = label(header, "Connecting…", 11, UDim2.new(1, -145, 0, 29), UDim2.fromOffset(145, 30), C.muted)
+saving.TextXAlignment = Enum.TextXAlignment.Right
+
+local tabs = panel(scroll, "Tabs", 46, 2)
+tabs.BackgroundTransparency = 1
+local playTab, shopTab
+local play = create("Frame", { Name = "Play", Size = UDim2.new(1, 0, 0, 0),
+	AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 3 }, scroll)
+create("UIListLayout", { Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder }, play)
+local shop = create("Frame", { Name = "Wardrobe", Size = UDim2.new(1, 0, 0, 0),
+	AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 4, Visible = false }, scroll)
+create("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, shop)
+local function tab(name)
+	activeTab = name
+	play.Visible = name == "Play"
+	shop.Visible = name == "Wardrobe"
+	playTab.BackgroundColor3 = if play.Visible then C.teal else C.muted
+	shopTab.BackgroundColor3 = if shop.Visible then C.teal else C.muted
+end
+playTab = button(tabs, "Play together", UDim2.new(), UDim2.new(0.5, -5, 1, 0), function() tab("Play") end)
+shopTab = button(tabs, "Cosmetic wardrobe", UDim2.new(0.5, 5, 0, 0), UDim2.new(0.5, -5, 1, 0), function() tab("Wardrobe") end, C.muted)
+
+local hero = panel(play, "AirMachine", 184, 1, C.teal)
+local phaseLabel = label(hero, "WELCOME ABOARD", 12, UDim2.fromOffset(16, 12), UDim2.new(0.6, -20, 0, 24), C.mint)
+phaseLabel.Font = Enum.Font.GothamBold
+local ballNumber = label(hero, "?", 58, UDim2.fromOffset(14, 43), UDim2.fromOffset(86, 82), C.yellow)
+ballNumber.Font = Enum.Font.GothamBlack
+local latest = label(hero, "Pip is warming\nup the machine.", 14, UDim2.fromOffset(108, 43), UDim2.new(0.58, -115, 0, 82), C.white)
+local countdown = label(hero, "Preparing your cards…", 13, UDim2.fromOffset(16, 135), UDim2.new(0.61, -24, 0, 36), C.white)
+
+-- A self-contained miniature air machine, rendered locally. Its balls never decide draws.
+local viewport = create("ViewportFrame", { Name = "MachineView", BackgroundTransparency = 1,
+	Position = UDim2.fromScale(0.6, 0.05), Size = UDim2.fromScale(0.39, 0.88),
+	Ambient = Color3.fromRGB(210, 220, 223), LightColor = Color3.fromRGB(255, 239, 210),
+	LightDirection = Vector3.new(-1, -1, -2) }, hero)
+local world = create("WorldModel", { Name = "Display" }, viewport)
+local camera = create("Camera", { CFrame = CFrame.lookAt(Vector3.new(0, 3, 15), Vector3.new(0, 0, 0)), FieldOfView = 34 }, viewport)
+viewport.CurrentCamera = camera
+local function displayPart(name, size, position, color, shape)
+	return create("Part", { Name = name, Anchored = true, CanCollide = false, Size = size,
+		Position = position, Color = color, Shape = shape or Enum.PartType.Block,
+		Material = Enum.Material.SmoothPlastic, TopSurface = Enum.SurfaceType.Smooth,
+		BottomSurface = Enum.SurfaceType.Smooth }, world)
+end
+displayPart("Stand", Vector3.new(5, 0.8, 3.5), Vector3.new(0, -2.7, 0), C.mint)
+displayPart("Housing", Vector3.new(3.7, 1, 2.4), Vector3.new(0, -2, 0), C.yellow)
+displayPart("Cap", Vector3.new(4.5, 0.5, 2.8), Vector3.new(0, 2.5, 0), C.pink)
+for _, x in ipairs({ -2.1, 2.1 }) do
+	displayPart("BrassSupport", Vector3.new(0.18, 4.2, 0.18), Vector3.new(x, 0.15, 0), C.yellow)
+end
+local chamber = displayPart("Chamber", Vector3.new(4.1, 4.1, 3.3), Vector3.new(0, 0.2, 0), C.white, Enum.PartType.Ball)
+chamber.Transparency = 0.86
+local animatedBalls = {}
+for index = 1, 10 do
+	animatedBalls[index] = displayPart("Ball" .. index, Vector3.new(0.7, 0.7, 0.7),
+		Vector3.new(math.sin(index) * 1.5, math.cos(index) * 1.3, 0),
+		({ C.yellow, C.pink, C.mint, C.white })[index % 4 + 1], Enum.PartType.Ball)
+end
+
+local instructionPanel = panel(play, "PipTip", 78, 2, C.mint)
+label(instructionPanel, "PIP'S POST", 11, UDim2.fromOffset(14, 6), UDim2.new(1, -28, 0, 20), C.teal).Font = Enum.Font.GothamBold
+local instruction = label(instructionPanel, "Two free cards. One shared draw. Finish any horizontal row!", 14,
+	UDim2.fromOffset(14, 27), UDim2.new(1, -28, 0, 44))
+
+local goalPanel = panel(play, "Objective", 132, 3)
+local goalTitle = label(goalPanel, "Choose a delivery • either earns +10 Pesos", 14, UDim2.fromOffset(12, 6), UDim2.new(1, -24, 0, 36))
+local trail = button(goalPanel, "Number trail\nMark 5 different numbers", UDim2.fromOffset(10, 49), UDim2.new(0.5, -15, 0, 72), function() fire("Goal", "trail") end)
+local twins = button(goalPanel, "Double delivery\nSame number on both cards", UDim2.new(0.5, 5, 0, 49), UDim2.new(0.5, -15, 0, 72), function() fire("Goal", "twins") end)
+local goalProgress = label(goalPanel, "", 14, UDim2.fromOffset(12, 42), UDim2.new(1, -24, 0, 32))
+
+local eventPanel = panel(play, "TailwindSwitch", 176, 4, C.yellow)
+eventPanel.Visible = false
+label(eventPanel, "TAILWIND SWITCH", 17, UDim2.fromOffset(12, 8), UDim2.new(1, -24, 0, 28)).Font = Enum.Font.GothamBold
+local eventText = label(eventPanel, "Swap any two cells on ONE card, or keep your layout. Marks travel with numbers.", 13,
+	UDim2.fromOffset(12, 39), UDim2.new(1, -24, 0, 57))
+local swapButton = button(eventPanel, "Preview a swap", UDim2.fromOffset(10, 110), UDim2.new(0.5, -15, 0, 52), function()
+	if not current or current.swapped then return end
+	if #swapSelection == 2 then
+		fire("Swap", swapSelection[1].card, swapSelection[1].cell, swapSelection[2].cell)
+		swapMode, swapSelection = false, {}
+	else
+		swapMode = not swapMode
+		swapSelection = {}
+	end
+	if render then render() end
+end)
+local keepButton = button(eventPanel, "Keep layout", UDim2.new(0.5, 5, 0, 110), UDim2.new(0.5, -15, 0, 52), function()
+	if swapMode then
+		swapMode, swapSelection = false, {}
+		if render then render() end
+	else
+		fire("Keep")
+	end
+end, C.muted)
+
+local cardsFrame = panel(play, "Cards", 280, 5)
+cardsFrame.BackgroundTransparency = 1
+local cardLayout = create("UIGridLayout", { CellPadding = UDim2.fromOffset(12, 12), SortOrder = Enum.SortOrder.LayoutOrder }, cardsFrame)
+local cardPanels, cardTitles, cells, cellStrokes, cellIndicators, cardGrids = {}, {}, {}, {}, {}, {}
+for cardIndex = 1, 2 do
+	local card = panel(cardsFrame, "Card" .. cardIndex, 260, cardIndex)
+	cardPanels[cardIndex] = card
+	cardTitles[cardIndex] = label(card, "DELIVERY " .. (if cardIndex == 1 then "A" else "B"), 12,
+		UDim2.fromOffset(9, 4), UDim2.new(1, -18, 0, 34), C.muted)
+	cardTitles[cardIndex].Font = Enum.Font.GothamBold
+	local grid = create("Frame", { Name = "Numbers", BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(8, 42), Size = UDim2.new(1, -16, 1, -50) }, card)
+	cardGrids[cardIndex] = create("UIGridLayout", { CellPadding = UDim2.fromOffset(6, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder, FillDirectionMaxCells = 3 }, grid)
+	cells[cardIndex], cellStrokes[cardIndex], cellIndicators[cardIndex] = {}, {}, {}
+	for cellIndex = 1, 9 do
+		local cell = button(grid, "—", UDim2.new(), UDim2.fromOffset(50, 50), function()
+			if not current or not current.cards[cardIndex] then return end
+			if swapMode and current.phase == "Event" and not current.swapped then
+				if #swapSelection == 0 or swapSelection[1].card ~= cardIndex then
+					swapSelection = { { card = cardIndex, cell = cellIndex } }
+				elseif swapSelection[1].cell == cellIndex then
+					swapSelection = {}
+				else
+					swapSelection[2] = { card = cardIndex, cell = cellIndex }
+				end
+				if render then render() end
+			else
+				fire("Mark", cardIndex, cellIndex)
+			end
+		end, C.white)
+		cell.Name = "Cell" .. cellIndex
+		cell.LayoutOrder = cellIndex
+		cell.TextColor3 = C.ink
+		cell.Font = Enum.Font.GothamBold
+		cell.TextSize = 23
+		cells[cardIndex][cellIndex] = cell
+		cellIndicators[cardIndex][cellIndex] = label(cell, "", 13, UDim2.new(1, -17, 0, 1), UDim2.fromOffset(16, 17))
+		cellIndicators[cardIndex][cellIndex].TextXAlignment = Enum.TextXAlignment.Center
+		cellStrokes[cardIndex][cellIndex] = create("UIStroke", { Thickness = 2, Color = C.line,
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, cell)
+	end
+end
+
+local function resizeCards()
+	local width = cardsFrame.AbsoluteSize.X
+	if width &lt;= 0 then return end
+	local columns = if width &lt; 350 then 1 else 2
+	local cardWidth = (width - (columns - 1) * 12) / columns
+	local cellSize = math.floor((cardWidth - 28) / 3)
+	local cardHeight = cellSize * 3 + 62
+	cardLayout.FillDirectionMaxCells = columns
+	cardLayout.CellSize = UDim2.fromOffset(math.floor(cardWidth), cardHeight)
+	cardsFrame.Size = UDim2.new(1, 0, 0, if columns == 1 then cardHeight * 2 + 12 else cardHeight)
+	for _, grid in ipairs(cardGrids) do grid.CellSize = UDim2.fromOffset(cellSize, cellSize) end
+end
+cardsFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(resizeCards)
+task.defer(resizeCards)
+
+local legend = panel(play, "Legend", 47, 6, C.mint)
+label(legend, "• = ready to mark     ✓ = stamped\nAny horizontal row completes that card.", 12,
+	UDim2.fromOffset(12, 2), UDim2.new(1, -24, 1, -4))
+
+local results = panel(play, "RoundResults", 118, 7, C.yellow)
+results.Visible = false
+local resultsTitle = label(results, "Delivery complete!", 22, UDim2.fromOffset(14, 9), UDim2.new(1, -28, 0, 34))
+resultsTitle.Font = Enum.Font.GothamBold
+local resultsDetail = label(results, "", 14, UDim2.fromOffset(14, 47), UDim2.new(1, -28, 0, 61))
+
+local historyPanel = panel(play, "History", 142, 8)
+label(historyPanel, "SHARED DRAW HISTORY", 12, UDim2.fromOffset(12, 7), UDim2.new(1, -24, 0, 29), C.muted).Font = Enum.Font.GothamBold
+local historyFrame = create("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 43),
+	Size = UDim2.new(1, -24, 0, 90) }, historyPanel)
+create("UIGridLayout", { CellSize = UDim2.new(0.125, -6, 0, 25), CellPadding = UDim2.fromOffset(6, 6),
+	FillDirectionMaxCells = 8, SortOrder = Enum.SortOrder.LayoutOrder }, historyFrame)
+local historyLabels = {}
+for number = 1, 24 do
+	local chip = label(historyFrame, tostring(number), 13)
+	chip.BackgroundTransparency = 0
+	chip.BackgroundColor3 = C.white
+	chip.TextXAlignment = Enum.TextXAlignment.Center
+	chip.LayoutOrder = number
+	corner(chip, 7)
+	historyLabels[number] = chip
+end
+
+local options = panel(play, "Accessibility", 106, 9)
+local autoButton = button(options, "Auto-mark: OFF", UDim2.fromOffset(8, 8), UDim2.new(0.5, -12, 0, 44), function()
+	if current then fire("Setting", "autoMark", not current.settings.autoMark) end
+end)
+local motionButton = button(options, "Motion: ON", UDim2.new(0.5, 4, 0, 8), UDim2.new(0.5, -12, 0, 44), function()
+	if current then fire("Setting", "reducedMotion", not current.settings.reducedMotion) end
+end, C.muted)
+local soundButton
+soundButton = button(options, "Sound: ON", UDim2.fromOffset(8, 59), UDim2.new(0.5, -12, 0, 39), function()
+	soundOn = not soundOn
+	soundButton.Text = if soundOn then "Sound: ON" else "Sound: OFF"
+end, C.muted)
+label(options, "Free accessibility options.\nNo speed bonus.", 11, UDim2.new(0.5, 6, 0, 60), UDim2.new(0.5, -14, 0, 37), C.muted)
+
+local shopIntro = panel(shop, "ShopIntro", 112, 1, C.mint)
+label(shopIntro, "MAKE YOURSELF AT HOME", 18, UDim2.fromOffset(14, 6), UDim2.new(1, -28, 0, 42)).Font = Enum.Font.GothamBold
+label(shopIntro, "Pick exactly what you love. These cosmetics change appearance only. All prices are earned Pesos.", 14,
+	UDim2.fromOffset(14, 48), UDim2.new(1, -28, 0, 55))
+local shopButtons = {}
+for index, item in ipairs(Config.Catalog) do
+	local row = panel(shop, item.id, 126, index + 1)
+	local swatch = create("Frame", { BackgroundColor3 = Color3.fromRGB(table.unpack(item.color)),
+		BorderSizePixel = 0, Position = UDim2.fromOffset(12, 16), Size = UDim2.fromOffset(48, 48) }, row)
+	corner(swatch, if item.category == "marker" then 24 else 10)
+	label(row, item.name, 16, UDim2.fromOffset(72, 7), UDim2.new(1, -82, 0, 30)).Font = Enum.Font.GothamBold
+	label(row, item.description, 12, UDim2.fromOffset(72, 35), UDim2.new(1, -82, 0, 30), C.muted)
+	shopButtons[item.id] = button(row, "Loading…", UDim2.new(1, -164, 1, -52), UDim2.fromOffset(152, 44), function()
+		fire("Cosmetic", item.id)
+	end)
+	label(row, string.upper(item.category), 10, UDim2.fromOffset(12, 76), UDim2.new(1, -188, 0, 24), C.muted)
+end
+
+local toast = label(background, "", 15, UDim2.new(0.5, 0, 1, -16), UDim2.new(1, -32, 0, 74), C.white)
+toast.Name = "Notice"
+toast.AnchorPoint = Vector2.new(0.5, 1)
+toast.BackgroundColor3 = C.ink
+toast.BackgroundTransparency = 0.04
+toast.TextXAlignment = Enum.TextXAlignment.Center
+toast.ZIndex = 30
+toast.Visible = false
+corner(toast, 16)
+create("UISizeConstraint", { MaxSize = Vector2.new(580, 90) }, toast)
+create("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, toast)
+local toastVersion = 0
+local function notify(message)
+	toastVersion += 1
+	local version = toastVersion
+	toast.Text, toast.Visible = message, true
+	task.delay(4, function() if toastVersion == version then toast.Visible = false end end)
+end
+
+local ping = create("Sound", { Name = "SoftDrawPing", SoundId = "rbxasset://sounds/electronicpingshort.wav",
+	Volume = 0.15, PlaybackSpeed = 1.1 }, SoundService)
+
+render = function()
+	if not current then return end
+	local s = current
+	wallet.Text = tostring(s.pesos) .. " Pesos"
+	saving.Text = s.saveStatus
+	local phaseNames = { Waiting = "WELCOME ABOARD", Intermission = "FRESH DELIVERY", Drawing = "SHARED SKY DRAW",
+		Event = "A LITTLE CHANGE OF WIND", LastCall = "FINAL STAMPS", Results = "DELIVERY COMPLETE" }
+	phaseLabel.Text = phaseNames[s.phase] or s.phase
+	ballNumber.Text = if #s.history &gt; 0 then tostring(s.history[#s.history]) else "?"
+	latest.Text = if #s.history &gt; 0 then "Ball " .. #s.history .. " / " .. s.drawCount .. "\nEveryone's draw" else "Two free cards.\nYour next adventure."
+	local participating = #s.cards == 2
+	if not participating then
+		instruction.Text = "Welcome! Watch the shared draw. Your two free cards arrive next round."
+	elseif s.phase == "Intermission" then
+		instruction.Text = "Hi, I'm Pip! Choose a delivery below, then stamp drawn numbers. Any horizontal row wins."
+	elseif s.phase == "Event" then
+		instruction.Text = "Draws are paused. Preview one swap below, or keep your layout. You can still mark drawn numbers."
+	elseif s.phase == "Results" then
+		instruction.Text = "Everyone keeps their earned Pesos. Fresh cards and another breeze are on their way."
+	else
+		instruction.Text = if s.participated then "Stamp matching numbers whenever you're ready. Complete each card once for +15 Pesos."
+			else "Make one choice or manual mark to join this round's rewards. Auto-mark players can tap its setting."
+	end
+	goalPanel.Visible = participating and s.phase ~= "Results"
+	local choosing = s.phase == "Intermission"
+	goalPanel.Size = UDim2.new(1, 0, 0, if choosing then 132 else 86)
+	trail.Visible, twins.Visible = choosing, choosing
+	goalProgress.Visible = not choosing
+	goalTitle.Text = if choosing then "Choose a delivery • either earns +10 Pesos" else Config.Goals[s.goal].name .. " • +10 Pesos"
+	goalProgress.Text = Config.Goals[s.goal].short .. "   " .. s.goalProgress .. "/" .. s.goalTarget
+	trail.BackgroundColor3 = if s.goal == "trail" then C.teal else C.muted
+	twins.BackgroundColor3 = if s.goal == "twins" then C.teal else C.muted
+	trail.Text = (if s.goal == "trail" and s.participated then "✓ " else "") .. "Number trail\nMark 5 different numbers"
+	twins.Text = (if s.goal == "twins" and s.participated then "✓ " else "") .. "Double delivery\nSame number on both cards"
+	eventPanel.Visible = s.phase == "Event" and participating
+	if s.swapped then
+		eventText.Text = "Your decision is confirmed. The draw will resume shortly."
+		swapButton.Text, keepButton.Text = "Decision saved", "All set!"
+	elseif #swapSelection == 2 then
+		local a, b = swapSelection[1], swapSelection[2]
+		eventText.Text = "PREVIEW: " .. s.cards[a.card].cells[a.cell].number .. " ↔ " .. s.cards[b.card].cells[b.cell].number
+			.. ". Review the card, then confirm."
+		swapButton.Text, keepButton.Text = "Confirm swap", "Cancel preview"
+	elseif swapMode then
+		eventText.Text = "Tap two cells on the same card. You'll see the new layout before you confirm."
+		swapButton.Text, keepButton.Text = "Exit preview", "Cancel preview"
+	else
+		eventText.Text = "Swap any two cells on ONE card, or keep your layout. Marks travel with numbers."
+		swapButton.Text, keepButton.Text = "Preview a swap", "Keep layout"
+	end
+	local markerItem = Economy.find(Config.Catalog, s.equipped.marker)
+	local cardItem = Economy.find(Config.Catalog, s.equipped.card)
+	local markerColor = Color3.fromRGB(table.unpack(markerItem.color))
+	for cardIndex = 1, 2 do
+		cardPanels[cardIndex].BackgroundColor3 = Color3.fromRGB(table.unpack(cardItem.color))
+		local card = s.cards[cardIndex]
+		cardTitles[cardIndex].Text = if card and card.complete then "✓ ROW COMPLETE" else "DELIVERY " .. (if cardIndex == 1 then "A" else "B")
+		for cellIndex = 1, 9 do
+			local sourceIndex = cellIndex
+			if #swapSelection == 2 and swapSelection[1].card == cardIndex then
+				if cellIndex == swapSelection[1].cell then sourceIndex = swapSelection[2].cell end
+				if cellIndex == swapSelection[2].cell then sourceIndex = swapSelection[1].cell end
+			end
+			local data = if card then card.cells[sourceIndex] else nil
+			local cell, stroke = cells[cardIndex][cellIndex], cellStrokes[cardIndex][cellIndex]
+			cell.Text = if data then tostring(data.number) else "—"
+			cellIndicators[cardIndex][cellIndex].Text = if data and data.marked then "✓" elseif data and data.available then "•" else ""
+			cell.BackgroundColor3 = if data and data.marked then markerColor else C.white
+			stroke.Color = if data and data.available and not data.marked then C.teal else C.line
+			stroke.Thickness = if data and data.available and not data.marked then 3 else 1
+			for _, selected in ipairs(swapSelection) do
+				if selected.card == cardIndex and selected.cell == cellIndex then
+					stroke.Color, stroke.Thickness = C.teal, 4
+				end
+			end
+		end
+	end
+	local drawn = {}
+	for _, number in ipairs(s.history) do drawn[number] = true end
+	for number, chip in ipairs(historyLabels) do
+		chip.BackgroundColor3 = if drawn[number] then C.teal else C.white
+		chip.TextColor3 = if drawn[number] then C.white else C.muted
+	end
+	results.Visible = s.phase == "Results" and s.summary ~= nil
+	if results.Visible then
+		resultsTitle.Text = "+" .. s.summary.total .. " Pesos delivered"
+		resultsDetail.Text = "Participation " .. s.summary.participation .. "  •  Rows " .. s.summary.patterns
+			.. "  •  Objective " .. s.summary.objective .. (if s.practice then "\nStudio practice: balance resets when you stop." else "\nLooking good! Progress saves automatically.")
+	end
+	autoButton.Text = if s.settings.autoMark then "Auto-mark: ON" else "Auto-mark: OFF"
+	motionButton.Text = if s.settings.reducedMotion then "Motion: REDUCED" else "Motion: ON"
+	for _, item in ipairs(Config.Catalog) do
+		local equipped = s.equipped[item.category] == item.id
+		shopButtons[item.id].Text = if equipped then "✓ Equipped" elseif s.owned[item.id] then "Equip" else "Buy · " .. item.price .. " Pesos"
+		shopButtons[item.id].BackgroundColor3 = if equipped then C.muted else C.teal
+	end
+end
+
+stateEvent.OnClientEvent:Connect(function(snapshot)
+	local previous = current
+	if not previous or snapshot.roundId ~= previous.roundId or snapshot.phase ~= "Event" or snapshot.swapped then
+		swapMode, swapSelection = false, {}
+	end
+	current = snapshot
+	if previous and snapshot.roundId == previous.roundId and #snapshot.history &gt; #previous.history then
+		if soundOn then ping:Play() end
+		if not snapshot.settings.reducedMotion then
+			ballNumber.TextSize = 68
+			TweenService:Create(ballNumber, TweenInfo.new(0.4, Enum.EasingStyle.Back), { TextSize = 58 }):Play()
+		end
+	end
+	if snapshot.notice then notify(snapshot.notice) end
+	if previous and snapshot.phase == "Event" and previous.phase ~= "Event" then
+		tab("Play")
+		notify("Tailwind Switch! The draw is paused for a free board decision.")
+	end
+	render()
+end)
+
+local elapsed = 0
+RunService.RenderStepped:Connect(function(delta)
+	elapsed += delta
+	local reduced = current and current.settings.reducedMotion
+	if not reduced then
+		for index, ball in ipairs(animatedBalls) do
+			local t = elapsed * 0.85 + index * 2.4
+			ball.Position = Vector3.new(math.sin(t) * 1.25, math.cos(t * 1.4) * 1.25 + 0.25, math.sin(t * 0.7) * 0.7 + 0.3)
+		end
+	end
+	if current then
+		local remaining = math.max(0, math.ceil(current.deadline - workspace:GetServerTimeNow()))
+		local prefixes = { Intermission = "Draw begins in ", Drawing = "Next moment in ", Event = "Draw resumes in ",
+			LastCall = "Finish your marks · ", Results = "Fresh cards in ", Waiting = "Getting ready · " }
+		countdown.Text = (prefixes[current.phase] or "") .. remaining .. "s  •  " .. current.players .. " aboard"
+	end
+end)
+
+task.spawn(function()
+	while not current do
+		action:FireServer("Sync")
+		task.wait(2)
+	end
+end)
+</ProtectedString>
+            <bool name="Disabled">false</bool>
+          </Properties>
+        </Item>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="Workspace" referent="RBX15">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <bool name="StreamingEnabled">false</bool>
+    </Properties>
+  </Item>
+  <Item class="Lighting" referent="RBX16">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <float name="ClockTime">14</float>
+    </Properties>
+  </Item>
+  <Item class="SoundService" referent="RBX17">
+    <Properties>
+      <string name="Name">SoundService</string>
+    </Properties>
+  </Item>
+</roblox>

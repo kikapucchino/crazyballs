@@ -1,0 +1,7 @@
+tests/.generated/
+__pycache__/
+*.pyc
+*.rbxl
+*.rbxl.lock
+*.rbxlx.lock
+.DS_Store

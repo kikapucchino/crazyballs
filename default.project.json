@@ -1,0 +1,17 @@
+{
+  "name": "Cloudpop Commons",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Cloudpop": { "$path": "src/shared" }
+    },
+    "ServerScriptService": {
+      "CloudpopServer": { "$path": "src/server" }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "CloudpopClient": { "$path": "src/client" }
+      }
+    }
+  }
+}
