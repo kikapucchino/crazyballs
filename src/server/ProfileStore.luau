@@ -98,6 +98,10 @@ function Store.save(profile, release)
 			profile.expires = result.lock.expires
 		end
 		profile.saveStatus = if (profile.revision or 0) == snapshotRevision then "Progress saved" else "Changes waiting to save"
+		if Store.onSaved then
+			local notified,problem=pcall(Store.onSaved,profile,snapshot)
+			if not notified then warn("Payout indexing deferred: "..tostring(problem)) end
+		end
 		return true
 	end
 	profile.saveStatus = "Save delayed · retrying"

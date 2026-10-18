@@ -36,15 +36,16 @@ def main():
         client_source = (ROOT / 'src/client/GameClient.client.luau').read_text()
         globals_ = ('game', 'script', 'workspace', 'task', 'Instance', 'require', 'warn',
                     'Color3', 'ColorSequence', 'UDim', 'UDim2', 'Vector2', 'Vector3',
-                    'CFrame', 'Enum', 'TweenInfo')
+                    'CFrame', 'Enum', 'TweenInfo', 'os')
         bindings = '\n'.join(f'local {name} = environment.{name}' for name in globals_)
         (generated / 'ClientHarness.luau').write_text(
             'return function(environment)\n' + bindings + '\n' + client_source + '\nend\n')
-        for module in ('AudioController', 'WorldEffects', 'CardPanel'):
+        for module in ('AudioController', 'WorldEffects', 'CardPanel', 'FeaturePanels', 'PetEffects'):
             source = (ROOT / f'src/client/{module}.luau').read_text()
             (generated / f'{module}Harness.luau').write_text('return function(environment)\n' + bindings + '\n' + source + '\nend\n')
-        source = (ROOT / 'src/server/CardHolder.luau').read_text()
-        (generated / 'CardHolderHarness.luau').write_text('return function(environment)\n' + bindings + '\n' + source + '\nend\n')
+        for module, folder in (('CardHolder','server'),('PetService','server'),('PetBuilder','shared'),('GlobalPayouts','server')):
+            source = (ROOT / f'src/{folder}/{module}.luau').read_text()
+            (generated / f'{module}Harness.luau').write_text('return function(environment)\n' + bindings + '\n' + source + '\nend\n')
         sources = sorted((ROOT / 'src').rglob('*.luau')) + sorted((ROOT / 'tests').rglob('*.luau'))
         for source in sources:
             result = subprocess.run([compiler, '--null', str(source)], cwd=ROOT, capture_output=True, text=True)

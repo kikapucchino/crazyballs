@@ -61,6 +61,12 @@ function Rules.mark(state, drawn, cardIndex, cellIndex)
 	state.marks[cardIndex][number], state.participated = true, true
 	return true
 end
+function Rules.markAll(state, drawn)
+	if state.settled then return end
+	for index,card in ipairs(state.cards) do
+		for _,number in ipairs(card) do if drawn[number] then state.marks[index][number]=true end end
+	end
+end
 function Rules.qualify(state, drawn)
 	local newlyQualified = {}
 	for id, card in pairs(state.bonuses) do

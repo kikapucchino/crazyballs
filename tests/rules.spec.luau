@@ -139,7 +139,7 @@ test("profile normalization strips unknown ownership and invalid balances", func
 		local normalized = Economy.normalize({ pesos = value, owned = { exploit = true },
 			equipped = { marker = "marker_berry" }, settings = { autoMark = "yes" } }, Config.Catalog)
 		assert(normalized.pesos == 0 and not normalized.owned.exploit)
-		assert(normalized.equipped.marker == "marker_sun" and normalized.settings.autoMark == nil)
+		assert(normalized.equipped.marker == "marker_sun" and normalized.settings.autoMark == false)
 	end
 	local valid = Economy.defaults()
 	valid.pesos = 99

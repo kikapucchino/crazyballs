@@ -118,11 +118,44 @@ return Layout
       </Item>
       <Item class="ModuleScript" referent="6">
         <Properties>
+          <string name="Name">ChestRules</string>
+          <string name="Source"><![CDATA[-- Claim bookkeeping only; the probability effect remains separately disabled.
+local Chest = {}
+function Chest.configured(config)
+	return config.ClaimRulesConfirmed == true and (config.ResetMode == "rolling" or config.ResetMode == "fixed")
+		and config.RewardMode == "fixed" and type(config.RewardUnits) == "number" and config.RewardUnits % 1 == 0
+		and config.RewardUnits > 0 and config.RewardUnits <= 1000
+end
+function Chest.status(data, config, now)
+	if not Chest.configured(config) then return { configured=false, canClaim=false, reason="Chest reward and reset rules await confirmation." } end
+	local key = if config.ResetMode == "rolling" then tostring(data.lastClaimAt) else tostring(math.floor((now-(config.ResetOffsetSeconds or 0))/86400))
+	local readyAt = if config.ResetMode == "rolling" then data.lastClaimAt+86400 else (math.floor((now-(config.ResetOffsetSeconds or 0))/86400)+1)*86400+(config.ResetOffsetSeconds or 0)
+	local available = data.claims == 0 or (if config.ResetMode == "rolling" then now>=readyAt else data.lastClaimKey~=key)
+	return {configured=true,canClaim=available,readyAt=if available then now else readyAt,key=key,claims=data.claims,units=data.rewardUnits}
+end
+function Chest.claim(data, config, now)
+	local status=Chest.status(data,config,now)
+	if not status.canClaim then return false,status.reason or "Your free chest is on cooldown." end
+	-- No yield between eligibility and receipt update: duplicate remote requests cannot both grant.
+	data.lastClaimAt,data.lastClaimKey=now,status.key
+	data.claims+=1
+	data.rewardUnits+=config.RewardUnits
+	return true,"Free chest claimed."
+end
+return Chest
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="7">
+        <Properties>
           <string name="Name">Config</string>
           <string name="Source"><![CDATA[-- Public tuning only. Outcomes, decks, and hidden selections live on the server.
 return {
 	Title = "Cloudpop Commons",
-	Build = "0.3.0",
+	Build = "0.4.0",
+	AutoMarkPass = { Id = 0, IntendedPrice = 60 },
+	Chest = { Permanent = true, ClaimRulesConfirmed = false, EffectEnabled = false, ResetMode = "", ResetOffsetSeconds = 0,
+		RewardMode = "", RewardUnits = 0 },
 	DataStoreName = "CloudpopProfiles_v1",
 	IntermissionSeconds = 15,
 	DrawSeconds = 4,
@@ -151,6 +184,9 @@ return {
 		SFX = { draw = "", mark = "", qualify = "", reveal = "", result = "" },
 	},
 	Catalog = {
+		{ id="pet_lumen", name="Lumen Loaf", category="pet", price=500, color={131,223,239}, description="A tiny lantern companion with soft sails" },
+		{ id="pet_prism", name="Prismote", category="pet", price=500, color={179,176,244}, description="A curious cubic creature with orbiting beads" },
+		{ id="pet_tassel", name="Tide Tassel", category="pet", price=500, color={127,201,183}, description="A sea-glass companion with three flowing ribbons" },
 		{ id = "marker_sun", name = "Sunbeam", category = "marker", price = 0, color = { 255, 199, 88 }, description = "A warm golden stamp" },
 		{ id = "marker_berry", name = "Berry pop", category = "marker", price = 60, color = { 236, 128, 166 }, description = "A berry-pink stamp" },
 		{ id = "marker_mint", name = "Mint breeze", category = "marker", price = 60, color = { 112, 222, 183 }, description = "A mint-green stamp" },
@@ -162,7 +198,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="7">
+      <Item class="ModuleScript" referent="8">
         <Properties>
           <string name="Name">Economy</string>
           <string name="Source"><![CDATA[local Economy = {}
@@ -174,7 +210,9 @@ function Economy.defaults()
 		rounds = 0,
 		owned = { marker_sun = true, card_cloud = true },
 		equipped = { marker = "marker_sun", card = "card_cloud" },
-		settings = { reducedMotion = false, musicVolume = 0.5, voiceVolume = 0.8, sfxVolume = 0.7 },
+		chest = { lastClaimAt = 0, lastClaimKey = "", claims = 0, rewardUnits = 0 },
+		payoutOutbox = {},
+		settings = { autoMark = false, reducedMotion = false, musicVolume = 0.5, voiceVolume = 0.8, sfxVolume = 0.7 },
 	}
 end
 
@@ -206,14 +244,37 @@ function Economy.normalize(raw, catalog)
 			profile.owned[item.id] = true
 		end
 	end
-	for _, category in ipairs({ "marker", "card" }) do
+	for _, category in ipairs({ "marker", "card", "pet" }) do
 		local id = if type(raw.equipped) == "table" then raw.equipped[category] else nil
 		local item = Economy.find(catalog, id)
 		if item and item.category == category and profile.owned[id] then
 			profile.equipped[category] = id
 		end
 	end
+	if type(raw.chest) == "table" then
+		for _,key in ipairs({"lastClaimAt","claims","rewardUnits"}) do profile.chest[key]=nonnegativeInteger(raw.chest[key]) end
+		-- Timestamps need the epoch range rather than the legacy currency cap.
+		local at=raw.chest.lastClaimAt
+		if type(at)=="number" and at%1==0 and at>=0 and at<=9999999999 then profile.chest.lastClaimAt=at end
+		if type(raw.chest.lastClaimKey)=="string" and #raw.chest.lastClaimKey<=40 then profile.chest.lastClaimKey=raw.chest.lastClaimKey end
+	end
+	if type(raw.payoutOutbox)=="table" then
+		for _,entry in ipairs(raw.payoutOutbox) do
+			if #profile.payoutOutbox>=2048 then break end
+			if type(entry)=="table" and type(entry.id)=="string" and #entry.id<=39
+				and type(entry.playerName)=="string" and #entry.playerName<=30
+				and type(entry.source)=="string" and #entry.source<=60
+				and type(entry.multiplier)=="string" and #entry.multiplier<=1025
+				and type(entry.userId)=="number" and entry.userId%1==0 and entry.userId>0
+				and type(entry.at)=="number" and entry.at%1==0 and entry.at>0
+				and type(entry.pesos)=="number" and entry.pesos%1==0 and entry.pesos>0 and entry.pesos<=1000000000 then
+				table.insert(profile.payoutOutbox,{id=entry.id,userId=entry.userId,playerName=entry.playerName,
+					source=entry.source,multiplier=entry.multiplier,pesos=entry.pesos,at=entry.at,test=entry.test==true})
+			end
+		end
+	end
 	if type(raw.settings) == "table" then
+		profile.settings.autoMark = raw.settings.autoMark == true
 		profile.settings.reducedMotion = raw.settings.reducedMotion == true
 		for _, key in ipairs({ "musicVolume", "voiceVolume", "sfxVolume" }) do
 			local value = raw.settings[key]
@@ -225,6 +286,10 @@ function Economy.normalize(raw, catalog)
 	return profile
 end
 
+function Economy.unequipPet(profile)
+	profile.equipped.pet=nil
+	return true,"Pet unequipped."
+end
 function Economy.purchase(profile, catalog, id)
 	if type(id) ~= "string" then
 		return false, "Unknown item."
@@ -250,7 +315,7 @@ return Economy
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="8">
+      <Item class="ModuleScript" referent="9">
         <Properties>
           <string name="Name">ExactInteger</string>
           <string name="Source"><![CDATA[-- Exact signed decimal arithmetic for bonus calculations. Never convert large values to doubles.
@@ -295,7 +360,7 @@ return Exact
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="9">
+      <Item class="ModuleScript" referent="10">
         <Properties>
           <string name="Name">GameRules</string>
           <string name="Source"><![CDATA[-- Pure round rules. Randomness is injected by the server, never by a client.
@@ -361,6 +426,12 @@ function Rules.mark(state, drawn, cardIndex, cellIndex)
 	state.marks[cardIndex][number], state.participated = true, true
 	return true
 end
+function Rules.markAll(state, drawn)
+	if state.settled then return end
+	for index,card in ipairs(state.cards) do
+		for _,number in ipairs(card) do if drawn[number] then state.marks[index][number]=true end end
+	end
+end
 function Rules.qualify(state, drawn)
 	local newlyQualified = {}
 	for id, card in pairs(state.bonuses) do
@@ -383,17 +454,95 @@ return Rules
 ]]></string>
         </Properties>
       </Item>
+      <Item class="ModuleScript" referent="11">
+        <Properties>
+          <string name="Name">PayoutRules</string>
+          <string name="Source"><![CDATA[-- The active economy uses exact bounded integers. Huge/signed bonus-ledger integration is pending.
+local Rules={Window=86400}
+function Rules.valid(record, now)
+	return type(record)=="table" and type(record.id)=="string" and #record.id>0 and #record.id<=39
+		and string.match(record.id,"^[%w_%-]+$")~=nil
+		and type(record.userId)=="number" and record.userId%1==0 and record.userId>0
+		and type(record.playerName)=="string" and #record.playerName<=30
+		and string.match(record.playerName,"^[%w_]+$")~=nil
+		and type(record.source)=="string" and #record.source>0 and #record.source<=60
+		and type(record.multiplier)=="string" and #record.multiplier<=1025 and string.match(record.multiplier,"^%-?%d+$")~=nil
+		and type(record.pesos)=="number" and record.pesos%1==0 and record.pesos>0 and record.pesos<=1000000000
+		and type(record.at)=="number" and record.at%1==0 and record.at<=now and record.at>now-Rules.Window
+		and record.test~=true
+end
+function Rules.better(a,b)
+	if not b then return true end
+	if a.pesos~=b.pesos then return a.pesos>b.pesos end
+	if a.at~=b.at then return a.at<b.at end
+	return a.id<b.id
+end
+function Rules.leader(records, now)
+	local best,seen=nil,{}
+	for _,record in ipairs(records) do
+		if not seen[record.id] and Rules.valid(record,now) then
+			seen[record.id]=true
+			if Rules.better(record,best) then best=record end
+		end
+	end
+	return best
+end
+return Rules
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="12">
+        <Properties>
+          <string name="Name">PetBuilder</string>
+          <string name="Source"><![CDATA[-- Three original geometric companions, no external models or franchise assets.
+local Pet = {}
+function Pet.build(id)
+	local model=Instance.new("Model")
+	model.Name=id
+	local function part(name,size,position,color,shape)
+		local item=Instance.new("Part")
+		item.Name,item.Size,item.Position=name,Vector3.new(table.unpack(size)),Vector3.new(table.unpack(position))
+		item.Color,item.Material=Color3.fromRGB(table.unpack(color)),Enum.Material.SmoothPlastic
+		item.Anchored,item.CanCollide,item.CanTouch,item.CanQuery,item.CastShadow=true,false,false,false,false
+		if shape then item.Shape=shape end
+		item.Parent=model
+		return item
+	end
+	local primary
+	if id=="pet_lumen" then
+		primary=part("Body",{1.8,1,1.2},{0,0,0},{131,223,239})
+		part("Crown",{0.7,0.4,0.7},{0,0.7,0},{246,223,139})
+		for _,side in ipairs({-1,1}) do part("Sail",{0.25,0.9,0.7},{side*1.1,0.2,0},{219,242,255}) end
+	elseif id=="pet_prism" then
+		primary=part("Body",{1.2,1.2,1.2},{0,0,0},{179,176,244})
+		for index=1,3 do
+			local orb=part("Orbit"..index,{0.45,0.45,0.45},{math.cos(index*2.1)*1.05,0.5,math.sin(index*2.1)*0.6},{150,225,243},Enum.PartType.Ball)
+			orb.Transparency=0.1
+		end
+	elseif id=="pet_tassel" then
+		primary=part("Body",{1.2,1.5,1.1},{0,0.2,0},{127,201,183},Enum.PartType.Ball)
+		for _,side in ipairs({-1,0,1}) do part("Ribbon",{0.2,0.8,0.25},{side*0.4,-0.75,0},{206,243,235}) end
+	else error("Unknown pet") end
+	for _,side in ipairs({-1,1}) do part("Eye",{0.13,0.16,0.09},{side*0.28,0.15,-0.61},{20,36,64}) end
+	part("Smile",{0.25,0.06,0.08},{0,-0.12,-0.62},{20,36,64})
+	model.PrimaryPart=primary
+	return model
+end
+return Pet
+]]></string>
+        </Properties>
+      </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="10">
+  <Item class="ServerScriptService" referent="13">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Folder" referent="11">
+    <Item class="Folder" referent="14">
       <Properties>
         <string name="Name">CloudpopServer</string>
       </Properties>
-      <Item class="ModuleScript" referent="12">
+      <Item class="ModuleScript" referent="15">
         <Properties>
           <string name="Name">CardHolder</string>
           <string name="Source"><![CDATA[-- Server-created tool replicates to everybody. It never changes camera or movement.
@@ -429,7 +578,7 @@ return CardHolder
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Script" referent="13">
+      <Item class="Script" referent="16">
         <Properties>
           <string name="Name">GameServer</string>
           <token name="RunContext">0</token>
@@ -442,6 +591,14 @@ local Manifest = require(Shared.AudioManifest)
 local Economy = require(Shared.Economy)
 local Profiles = require(script.Parent.ProfileStore)
 local Holder = require(script.Parent.CardHolder)
+local Marketplace = game:GetService("MarketplaceService")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local ChestRules = require(Shared.ChestRules)
+local Pass = require(script.Parent.PassService).new(Marketplace, Config.AutoMarkPass, os.clock)
+local Pets = require(script.Parent.PetService).new(require(Shared.PetBuilder), workspace)
+local Feed = require(script.Parent.ResultFeed).new(os.time)
+local Global = require(script.Parent.GlobalPayouts).new(function(record) Feed:record(record) end)
 
 local remotes = Instance.new("Folder")
 remotes.Name = "Remotes"
@@ -469,6 +626,18 @@ local function changed(profile)
 	profile.revision = (profile.revision or 0) + 1
 	if not profile.practice then profile.saveStatus = "Changes waiting to save" end
 end
+
+local function enqueueCommitted(profile, snapshot)
+	for _,record in ipairs(snapshot.payoutOutbox or {}) do
+		Global:submit(record, function()
+			if profile.closing then return end
+			for index,entry in ipairs(profile.data.payoutOutbox) do
+				if entry.id==record.id then table.remove(profile.data.payoutOutbox,index);changed(profile);break end
+			end
+		end)
+	end
+end
+Profiles.onSaved = enqueueCommitted
 
 local function send(player, notice)
 	local profile = profiles[player]
@@ -507,6 +676,8 @@ local function send(player, notice)
 		pesos = profile.data.pesos, rounds = profile.data.rounds,
 		owned = profile.data.owned, equipped = profile.data.equipped, settings = profile.data.settings,
 		saveStatus = profile.saveStatus, practice = profile.practice,
+		pass = Pass:view(player), chest = ChestRules.status(profile.data.chest, Config.Chest, os.time()),
+		topPayout = Global:view(), recentBonuses = Feed.recent, systemMessages = Feed.messages,
 		players = #Players:GetPlayers(), summary = summaries[player], notice = notice,
 	})
 end
@@ -522,7 +693,18 @@ local function settle(player)
 	if #round.history == 0 then return end
 	local summary = Rules.settle(board, Config.Rewards)
 	if not summary then return end
-	profile.data.pesos += summary.total
+	local credited = math.min(summary.total, 1000000000-profile.data.pesos)
+	profile.data.pesos += credited
+	summary.total = credited
+	if credited>0 and not profile.practice and not RunService:IsStudio() then
+		-- The credit and its transaction enter the SAME durable profile write.
+		for index=#profile.data.payoutOutbox,1,-1 do
+			local record=profile.data.payoutOutbox[index]
+			if type(record.at)~="number" or record.at<=os.time()-86400 then table.remove(profile.data.payoutOutbox,index) end
+		end
+		table.insert(profile.data.payoutOutbox,{id=HttpService:GenerateGUID(false),userId=player.UserId,
+			playerName=player.Name,source="Round participation",multiplier="1",pesos=credited,at=os.time()})
+	end
 	if board.participated then profile.data.rounds += 1 end
 	changed(profile)
 	summaries[player] = summary
@@ -542,6 +724,9 @@ local function addPlayer(player)
 		return
 	end
 	profiles[player] = profile
+	if not profile.practice then enqueueCommitted(profile, profile.data) end
+	Pets:sync(player, profile.data.equipped.pet)
+	task.spawn(function() Pass:check(player); send(player) end)
 	characterConnections[player] = player.CharacterAdded:Connect(function() task.spawn(Holder.give, player) end)
 	task.spawn(Holder.give, player)
 	if round.phase == "Intermission" then
@@ -557,6 +742,8 @@ local function removePlayer(player)
 		settle(player)
 		Profiles.close(profile)
 	end
+	Pets:remove(player)
+	Pass:forget(player)
 	if characterConnections[player] then characterConnections[player]:Disconnect(); characterConnections[player] = nil end
 	profiles[player], boards[player], summaries[player], rateLimits[player] = nil, nil, nil, nil
 	broadcast()
@@ -575,12 +762,24 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 	if not usable(player) then send(player, "Saving is reconnecting. Please wait."); return end
 	local profile, board = profiles[player], boards[player]
 	local notice
-	if name == "Cosmetic" then
+	if name == "RefreshPass" then
+		task.spawn(function() Pass:check(player);send(player) end)
+	elseif name == "UnequipPet" then
+		Economy.unequipPet(profile.data);Pets:sync(player,nil);changed(profile)
+		notice = "Pet unequipped."
+	elseif name == "ClaimChest" then
+		local claimed,message = ChestRules.claim(profile.data.chest, Config.Chest, os.time())
+		notice=message
+		if claimed then changed(profile); task.spawn(function() Profiles.save(profile,false);send(player) end) end
+	elseif name == "Cosmetic" then
 		local bought, message = Economy.purchase(profile.data, Config.Catalog, a)
-		if bought then changed(profile) end
+		if bought then changed(profile);Pets:sync(player,profile.data.equipped.pet) end
 		notice = message
 	elseif name == "Setting" then
-		if a == "reducedMotion" then
+		if a == "autoMark" then
+			if type(b)~="boolean" or (b and not Pass:owns(player)) then send(player,"Auto Mark requires verified pass ownership.");return end
+			if b and board and not board.settled and (round.phase=="Drawing" or round.phase=="LastCall") then Rules.markAll(board, round.drawn) end
+		elseif a == "reducedMotion" then
 			if type(b) ~= "boolean" then return end
 		elseif a == "musicVolume" or a == "voiceVolume" or a == "sfxVolume" then
 			if type(b) ~= "number" or b ~= b or b < 0 or b > 1 then return end
@@ -595,6 +794,20 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 		end
 	end
 	send(player, notice)
+end)
+
+Marketplace.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
+	if passId~=Config.AutoMarkPass.Id or not purchased or not profiles[player] then return end
+	task.spawn(function() Pass:check(player,true);send(player) end)
+end)
+
+task.spawn(function()
+	while not closing do
+		local ok,problem=pcall(function() Global:pump() end)
+		if not ok then Global.running=false;warn("Global payout service: "..tostring(problem)) end
+		broadcast()
+		task.wait(5)
+	end
 end)
 
 Players.PlayerAdded:Connect(addPlayer)
@@ -684,6 +897,8 @@ while not closing do
 		table.insert(round.history, number)
 		for player, board in pairs(boards) do
 			Rules.qualify(board, round.drawn)
+			local profile=profiles[player]
+			if profile and profile.data.settings.autoMark and Pass:owns(player) then Rules.markAll(board,round.drawn) end
 		end
 		phase("Drawing", Config.DrawSeconds, "number_" .. number)
 	end
@@ -698,7 +913,107 @@ end
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="14">
+      <Item class="ModuleScript" referent="17">
+        <Properties>
+          <string name="Name">GlobalPayouts</string>
+          <string name="Source"><![CDATA[local DataStoreService=game:GetService("DataStoreService")
+local MessagingService=game:GetService("MessagingService")
+local HttpService=game:GetService("HttpService")
+local RunService=game:GetService("RunService")
+local Shared=game:GetService("ReplicatedStorage"):WaitForChild("Cloudpop")
+local Rules=require(Shared.PayoutRules)
+local Store=require(script.Parent.PayoutStore)
+local Global={}
+function Global.new(onRecord)
+	local self={leader=nil,status="Loading global payout records",pending={},running=false,nextScan=0,candidates={},notifications={}}
+	local enabled=not RunService:IsStudio()
+	local store
+	if not enabled then self.status="Studio test payouts are excluded" end
+	local function publish(data) pcall(function() MessagingService:PublishAsync("CloudpopPayouts_v1",data) end) end
+	function self:submit(record,ack)
+		if not enabled or not Rules.valid(record,os.time()) then return end
+		if not self.pending[record.id] then self.pending[record.id]={record=record,ack=ack,attemptAt=0,attempts=0} end
+	end
+	function self:view()
+		local leader=self.leader
+		if leader and not Rules.valid(leader,os.time()) then leader=nil;self.nextScan=0;self.status="Refreshing expired payout record" end
+		return {leader=leader,status=self.status}
+	end
+	function self:pump()
+		if not enabled or self.running then return end
+		self.running=true
+		if not store then
+			local ok,result=pcall(Store.new,DataStoreService,Rules,os.time)
+			if not ok then self.status="Payout record service unavailable; retrying";self.running=false;return end
+			store=result
+		end
+		local now=os.time()
+		local readCount=0
+		for id,at in pairs(self.notifications) do
+			if readCount>=4 then break end
+			readCount+=1
+			local record=store:read(id)
+			if record and record.announcementToken then onRecord(record);self.notifications[id]=nil
+			elseif now-at>30 then self.notifications[id]=nil end
+		end
+		local processed=0
+		for id,entry in pairs(self.pending) do
+			if processed>=4 then break end -- batch writes; no remote can flood this queue
+			if entry.attemptAt>now then continue end
+			processed+=1
+			if now-entry.record.at>=86400 then self.pending[id]=nil; if entry.ack then entry.ack() end;continue end
+			local ok=store:put(entry.record)
+			if ok then
+				self.pending[id]=nil
+				self.candidates[id]=now
+				self.nextScan=0
+				if entry.ack then entry.ack() end
+				publish({kind="changed",id=id})
+			else
+				entry.attempts+=1
+				entry.attemptAt=now+math.min(120,5*2^math.min(entry.attempts,5))
+				self.status="Payout record service delayed; retrying"
+			end
+		end
+		if now>=self.nextScan then
+			local leader,problem=store:leader()
+			self.nextScan=now+60
+			if problem then self.status="Payout record service delayed; retrying"
+			else
+				self.leader,self.status=leader,"Updated "..now
+				if leader and self.candidates[leader.id] and now-leader.at<=120 then
+					local token=HttpService:GenerateGUID(false)
+					if store:claimAnnouncement(leader.id,token) then onRecord(leader);publish({kind="record",id=leader.id}) end
+				end
+			end
+		end
+		for id,at in pairs(self.candidates) do if now-at>120 then self.candidates[id]=nil end end
+		self.running=false
+	end
+	if enabled then
+		task.spawn(function()
+			-- Subscription failure does not block gameplay; minute polling is the fallback.
+			pcall(function()
+				MessagingService:SubscribeAsync("CloudpopPayouts_v1",function(message)
+					local data=message.Data
+					if type(data)~="table" or type(data.id)~="string" or #data.id>80 then return end
+					if data.kind=="changed" then
+						self.candidates[data.id]=os.time()
+						self.nextScan=math.min(self.nextScan,os.time()+10)
+					elseif data.kind=="record" then
+						self.notifications[data.id]=os.time()
+					end
+				end)
+			end)
+		end)
+	end
+	return self
+end
+return Global
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="18">
         <Properties>
           <string name="Name">LobbyPlan</string>
           <string name="Source"><![CDATA[-- Geometry in studs; shared by construction and collision/accessibility regression checks.
@@ -717,7 +1032,153 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="19">
+        <Properties>
+          <string name="Name">PassService</string>
+          <string name="Source"><![CDATA[-- Injected MarketplaceService makes ownership checks testable without simulated purchases.
+local Pass = {}
+function Pass.new(marketplace, config, clock)
+	local self={states={}}
+	local function configured() return type(config.Id)=="number" and config.Id%1==0 and config.Id>0 end
+	function self:check(player, force)
+		local state=self.states[player] or {owned=false,checkedAt=-math.huge,status="Checking ownership"}
+		self.states[player]=state
+		if not configured() then state.status="Pass ID not configured"; return state end
+		if state.checking or (not force and clock()-state.checkedAt<15) then return state end
+		state.checking=true
+		local ok,owned=pcall(function() return marketplace:UserOwnsGamePassAsync(player.UserId,config.Id) end)
+		state.checking,state.checkedAt=false,clock()
+		if ok then state.owned=owned==true;state.status=if owned then "Owned" else "Not owned"
+		else state.status="Ownership check unavailable; retry shortly" end
+		return state
+	end
+	function self:view(player)
+		local state=self.states[player]
+		return {id=config.Id,intendedPrice=config.IntendedPrice,configured=configured(),owned=state and state.owned==true,status=state and state.status or "Checking ownership"}
+	end
+	function self:owns(player) return self.states[player] and self.states[player].owned==true end
+	function self:forget(player) self.states[player]=nil end
+	return self
+end
+return Pass
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="20">
+        <Properties>
+          <string name="Name">PayoutStore</string>
+          <string name="Source"><![CDATA[-- Durable transaction metadata + two UTC-day ordered indexes. Never aggregates players.
+-- Injected services keep query/tie/expiry/retry behavior testable.
+local Store={}
+function Store.new(dataStoreService, rules, clock)
+	local records=dataStoreService:GetDataStore("CloudpopPayoutTransactions_v1")
+	local self={}
+	local function index(day) return dataStoreService:GetOrderedDataStore("CloudpopPayoutDay_v1_"..day) end
+	local function key(record) return string.format("%010d:%s",record.at,record.id) end
+	function self:put(record)
+		if not rules.valid(record,clock()) then return false,"Ineligible payout" end
+		local ok,result=pcall(function()
+			local persisted=records:UpdateAsync(record.id,function(old)
+				if old then return old end
+				return table.clone(record)
+			end)
+			if not persisted or persisted.userId~=record.userId or persisted.at~=record.at or persisted.pesos~=record.pesos
+				or persisted.multiplier~=record.multiplier or persisted.source~=record.source or persisted.playerName~=record.playerName then
+				error("Conflicting payout transaction ID")
+			end
+			index(math.floor(record.at/86400)):SetAsync(key(record),record.pesos)
+			return true
+		end)
+		return ok and result==true, if ok then nil else tostring(result)
+	end
+	function self:read(id)
+		local ok,result=pcall(function() return records:GetAsync(id) end)
+		return if ok and rules.valid(result,clock()) then result else nil
+	end
+	function self:leader(at)
+		local now,best=at or clock(),nil
+		local ok,problem=pcall(function()
+			for day=math.floor((now-86400)/86400),math.floor(now/86400) do
+				local pages=index(day):GetSortedAsync(false,100,1)
+				local candidate,done=nil,false
+				local pageCount=0
+				repeat
+					pageCount+=1
+					assert(pageCount<=20,"Payout query page budget reached; retrying")
+					for _,entry in ipairs(pages:GetCurrentPage()) do
+						local timestamp,id=string.match(entry.key,"^(%d+):([%w_%-]+)$")
+						local at=tonumber(timestamp)
+						if candidate and entry.value<candidate.pesos then done=true;break end
+						if at and at>now-86400 and at<=now then
+							local contender={id=id,at=at,pesos=entry.value}
+							if rules.better(contender,candidate) then candidate=contender end
+						end
+					end
+					if pages.IsFinished or done then break end
+					-- Query work runs in a background coroutine; throttling fails closed and retries later.
+					pages:AdvanceToNextPageAsync()
+				until false
+				if candidate then
+					local record=records:GetAsync(candidate.id)
+					assert(rules.valid(record,now) and record.id==candidate.id and record.pesos==candidate.pesos and record.at==candidate.at,"Incomplete payout metadata")
+					if rules.better(record,best) then best=record end
+				end
+			end
+		end)
+		return if ok then best else nil, if ok then nil else tostring(problem)
+	end
+	function self:claimAnnouncement(id, token)
+		local now=clock()
+		local candidate=self:read(id)
+		if not candidate or now-candidate.at>120 then return false end
+		-- A replacement caused by expiry is not a newly awarded record.
+		local atAward,problem=self:leader(candidate.at)
+		if problem or not atAward or atAward.id~=id then return false end
+		local ok,result=pcall(function()
+			return records:UpdateAsync(id,function(old)
+				if not rules.valid(old,now) or now-old.at>120 then return nil end
+				if old.announcementToken then return old end
+				local updated=table.clone(old);updated.announcementToken=token
+				return updated
+			end)
+		end)
+		return ok and result~=nil and result.announcementToken==token
+	end
+	return self
+end
+return Store
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="21">
+        <Properties>
+          <string name="Name">PetService</string>
+          <string name="Source"><![CDATA[local PetService={}
+function PetService.new(builder, world)
+	local folder=Instance.new("Folder")
+	folder.Name,folder.Parent="CloudpopPets",world
+	local models={}
+	local self={}
+	function self:sync(player, id)
+		local current=models[player]
+		if current and current.Name==id then return end
+		if current then current:Destroy();models[player]=nil end
+		if not id then return end
+		local model=builder.build(id)
+		model:SetAttribute("OwnerUserId",player.UserId)
+		local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		model:PivotTo(if root then root.CFrame*CFrame.new(3,1,3) else CFrame.new(0,-30,0))
+		model.Parent=folder
+		models[player]=model
+	end
+	function self:remove(player) self:sync(player,nil) end
+	return self
+end
+return PetService
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="22">
         <Properties>
           <string name="Name">ProfileStore</string>
           <string name="Source"><![CDATA[local DataStoreService = game:GetService("DataStoreService")
@@ -820,6 +1281,10 @@ function Store.save(profile, release)
 			profile.expires = result.lock.expires
 		end
 		profile.saveStatus = if (profile.revision or 0) == snapshotRevision then "Progress saved" else "Changes waiting to save"
+		if Store.onSaved then
+			local notified,problem=pcall(Store.onSaved,profile,snapshot)
+			if not notified then warn("Payout indexing deferred: "..tostring(problem)) end
+		end
 		return true
 	end
 	profile.saveStatus = "Save delayed · retrying"
@@ -842,7 +1307,48 @@ return Store
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="23">
+        <Properties>
+          <string name="Name">ResultFeed</string>
+          <string name="Source"><![CDATA[-- Only trusted award/bonus-completion code may call these methods. No client result remote exists.
+local Feed={}
+function Feed.new(clock)
+	local self={recent={},messages={},seen={},seenOrder={},serial=0}
+	function self:message(text,id)
+		if self.seen[id] then return end
+		self.seen[id]=true
+		table.insert(self.seenOrder,id)
+		if #self.seenOrder>256 then self.seen[table.remove(self.seenOrder,1)]=nil end
+		self.serial+=1
+		table.insert(self.messages,{id=id,serial=self.serial,text=text,at=clock()})
+		while #self.messages>12 do table.remove(self.messages,1) end
+	end
+	function self:completeBonus(event)
+		if self.seen["bonus:"..event.id] then return false end
+		assert(type(event.results)=="table" and #event.results>0,"No confirmed results")
+		-- Call only AFTER every listed result has actually been credited/debited.
+		local recipients={}
+		for _,result in ipairs(event.results) do
+			assert(result.committed==true and type(result.pesos)=="number" and result.pesos==result.pesos and math.abs(result.pesos)<math.huge,"Uncommitted result")
+			table.insert(recipients,result.playerName..": "..result.multiplier.."×, "..(if result.pesos>0 then "+" else "")..result.pesos.." Pesos")
+		end
+		table.insert(self.recent,1,{id=event.id,name=event.name,at=event.at,results=event.results})
+		while #self.recent>4 do table.remove(self.recent) end
+		local text=event.name.." completed — "..table.concat(recipients,"; ")
+		if #text>400 then text=event.name.." completed for "..#recipients.." players. Full signed results in Records." end
+		self:message(text,"bonus:"..event.id)
+		return true
+	end
+	function self:record(record)
+		self:message("Highest payout — last 24 hours: "..record.playerName.." received "..record.pesos.." Pesos from "..record.source.." ("..record.multiplier.."×).","record:"..record.id)
+	end
+	return self
+end
+return Feed
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="24">
         <Properties>
           <string name="Name">Workshop</string>
           <string name="Source"><![CDATA[-- Original enclosed observatory, built only from Roblox primitives.
@@ -1036,22 +1542,22 @@ return Workshop
       </Item>
     </Item>
   </Item>
-  <Item class="SoundService" referent="17">
+  <Item class="SoundService" referent="25">
     <Properties>
       <string name="Name">SoundService</string>
     </Properties>
   </Item>
-  <Item class="StarterGui" referent="18">
+  <Item class="StarterGui" referent="26">
     <Properties>
       <string name="Name">StarterGui</string>
     </Properties>
-    <Item class="ScreenGui" referent="19">
+    <Item class="ScreenGui" referent="27">
       <Properties>
         <string name="Name">CloudpopUI</string>
         <int name="DisplayOrder">10</int>
         <bool name="ResetOnSpawn">false</bool>
       </Properties>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="28">
         <Properties>
           <string name="Name">AudioController</string>
           <string name="Source"><![CDATA[-- One looping music voice, one queued human-voice channel, four effect voices.
@@ -1180,7 +1686,7 @@ return Audio
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="21">
+      <Item class="ModuleScript" referent="29">
         <Properties>
           <string name="Name">CardPanel</string>
           <string name="Source"><![CDATA[-- Horizontal main cards and an adjacent 2x2 bonus group, in one bottom-center tray.
@@ -1261,7 +1767,139 @@ return Panel
 ]]></string>
         </Properties>
       </Item>
-      <Item class="LocalScript" referent="22">
+      <Item class="ModuleScript" referent="30">
+        <Properties>
+          <string name="Name">FeaturePanels</string>
+          <string name="Source"><![CDATA[local Marketplace=game:GetService("MarketplaceService")
+local Players=game:GetService("Players")
+local TextChatService=game:GetService("TextChatService")
+local Shared=game:GetService("ReplicatedStorage"):WaitForChild("Cloudpop")
+local PetBuilder=require(Shared.PetBuilder)
+local Features={}
+function Features.new(body,settings,ui,config,request)
+	local self={pages={},heights={Pets=580,Chest=270,Records=820},state=nil,seenSerial=0,queue={},nextMessage=0,price=nil,priceId=nil}
+	local make,label,button=ui.make,ui.label,ui.button
+	local function page(name,height)
+		local frame=make("Frame",name,body,{Size=UDim2.new(1,-6,0,height),BackgroundTransparency=1,Visible=false})
+		self.pages[name]=frame;return frame
+	end
+	local pets=page("Pets",580)
+	local petButtons={}
+	local petIndex=0
+	for _,item in ipairs(config.Catalog) do
+		if item.category~="pet" then continue end
+		local y=petIndex*172;petIndex+=1
+		local preview=make("ViewportFrame",item.id.."Preview",pets,{Size=UDim2.fromOffset(98,106),Position=UDim2.fromOffset(0,y),BackgroundTransparency=1,
+			Ambient=Color3.fromRGB(220,230,255),LightColor=Color3.fromRGB(255,250,230)})
+		local world=make("WorldModel","PreviewWorld",preview)
+		local model=PetBuilder.build(item.id);model.Parent=world
+		local camera=make("Camera","PreviewCamera",preview,{CFrame=CFrame.lookAt(Vector3.new(3,1.8,-5),Vector3.new(0,0,0)),FieldOfView=36})
+		preview.CurrentCamera=camera
+		label(item.id.."Name",pets,item.name,UDim2.new(1,-104,0,30),UDim2.fromOffset(104,y),16)
+		label(item.id.."Description",pets,item.description or "Cosmetic companion",UDim2.new(1,-104,0,74),UDim2.fromOffset(104,y+30),13)
+		petButtons[item.id]=button(item.id,pets,item.price.." Pesos",UDim2.new(1,0,0,48),UDim2.fromOffset(0,y+112),function() request("Cosmetic",item.id) end)
+	end
+	button("UnequipPet",pets,"Unequip pet",UDim2.new(1,0,0,44),UDim2.fromOffset(0,524),function() request("UnequipPet") end)
+	local chest=page("Chest",270)
+	label("ChestTitle",chest,"FREE DAILY CHEST",UDim2.new(1,0,0,32),UDim2.fromOffset(0,0),17)
+	label("ChestDetails",chest,"Permanent upgrade · no paid keys or resets. Missing a day never removes earned progress. Probability effect awaits confirmed rules.",UDim2.new(1,0,0,102),UDim2.fromOffset(0,36),14)
+	local chestStatus=label("ChestStatus",chest,"",UDim2.new(1,0,0,76),UDim2.fromOffset(0,140),13)
+	local claim=button("ClaimChest",chest,"Rules pending",UDim2.new(1,0,0,44),UDim2.fromOffset(0,220),function()
+		if self.state and self.state.chest and self.state.chest.canClaim then request("ClaimChest") end
+	end)
+	local records=page("Records",820)
+	label("TopPayoutTitle",records,"Highest payout — last 24 hours",UDim2.new(1,0,0,48),UDim2.fromOffset(0,0),17)
+	local top=label("TopPayout",records,"Loading global payout records",UDim2.new(1,0,0,142),UDim2.fromOffset(0,50),14)
+	label("RecentTitle",records,"Recent bonuses · this server",UDim2.new(1,0,0,42),UDim2.fromOffset(0,198),17)
+	local recent=label("RecentBonuses",records,"No completed bonus events yet.",UDim2.new(1,0,0,570),UDim2.fromOffset(0,246),13)
+	recent.TextYAlignment=Enum.TextYAlignment.Top
+	recent.AutomaticSize=Enum.AutomaticSize.Y
+	self.recordsText=recent
+	label("PassTitle",settings,"PERMANENT AUTO MARK",UDim2.new(1,0,0,32),UDim2.fromOffset(0,410),16)
+	local passStatus=label("PassStatus",settings,"Pass ID not configured",UDim2.new(1,0,0,86),UDim2.fromOffset(0,446),13)
+	local buy=button("BuyAutoMark",settings,"Unavailable",UDim2.new(1,0,0,44),UDim2.fromOffset(0,540),function()
+		local pass=self.state and self.state.pass
+		if pass and pass.configured and not pass.owned and self.price and self.priceId==pass.id then
+			pcall(function() Marketplace:PromptGamePassPurchase(Players.LocalPlayer,pass.id) end)
+		end
+	end)
+	local toggle=button("ToggleAutoMark",settings,"Auto Mark · Off",UDim2.new(1,0,0,44),UDim2.fromOffset(0,590),function()
+		if self.state and self.state.pass and self.state.pass.owned then request("Setting","autoMark",not self.state.settings.autoMark) end
+	end)
+	button("RefreshPass",settings,"Refresh pass ownership / price",UDim2.new(1,0,0,44),UDim2.fromOffset(0,640),function()
+		self.priceId=nil;self.price=nil;request("RefreshPass")
+	end)
+	label("PassEffect",settings,"Marks called matching numbers only. Manual marking is free. Cards, draws, multipliers and bonus odds do not change.",UDim2.new(1,0,0,80),UDim2.fromOffset(0,692),13)
+	function self:show(name)
+		for key,frame in pairs(self.pages) do frame.Visible=key==name end
+	end
+	function self:render(state)
+		self.state=state
+		for _,item in ipairs(config.Catalog) do
+			if item.category=="pet" then
+				petButtons[item.id].Text=item.name.." · "..(if state.equipped.pet==item.id then "Equipped" elseif state.owned[item.id] then "Equip · owned" else item.price.." Pesos")
+			end
+		end
+		local pass=state.pass
+		if pass then
+			if pass.configured and self.priceId~=pass.id then
+				self.priceId,self.price=pass.id,nil
+				task.spawn(function()
+					local ok,info=pcall(function() return Marketplace:GetProductInfoAsync(pass.id,Enum.InfoType.GamePass) end)
+					if self.priceId~=pass.id then return end
+					self.price=if ok and info.IsForSale and type(info.PriceInRobux)=="number" then info.PriceInRobux else nil
+					self:render(self.state)
+				end)
+			end
+			buy.Text=if pass.owned then "Owned" elseif not pass.configured then "Pass ID not configured" elseif self.price then "Buy · "..self.price.." Robux" else "Platform price unavailable"
+			passStatus.Text=pass.status..(if self.price and self.price~=pass.intendedPrice then "\nPrice differs from intended "..pass.intendedPrice.." Robux (regional pricing may apply)." else "\nIntended price: "..pass.intendedPrice.." Robux. Roblox confirms the final price.")
+			toggle.Text="Auto Mark · "..(if state.settings.autoMark and pass.owned then "On" else "Off")..(if not pass.owned then " · pass required" else "")
+		end
+		local status=state.chest
+		if status then
+			chestStatus.Text=if not status.configured then status.reason elseif status.canClaim then "Your free chest is ready." else "Next claim: "..os.date("!%d %b %H:%M UTC",status.readyAt)
+			claim.Text=if status.canClaim then "Claim free chest" elseif status.configured then "On cooldown" else "Rules pending"
+		end
+		local payout=state.topPayout
+		if payout then
+			local winner=payout.leader
+			top.Text=if winner then winner.playerName.." · "..winner.pesos.." Pesos\n"..winner.source.." · "..winner.multiplier.."×\n"..os.date("!%d %b %H:%M:%S UTC",winner.at).."\n"..payout.status
+				elseif string.sub(payout.status,1,7)=="Updated" then "No qualifying payouts in the last 24 hours." else payout.status
+		end
+		local lines={}
+		for _,event in ipairs(state.recentBonuses or {}) do
+			table.insert(lines,event.name.." · "..os.date("!%H:%M:%S UTC",event.at))
+			for _,result in ipairs(event.results) do
+				table.insert(lines,result.playerName.." · "..result.multiplier.."× · "..(if result.pesos>0 then "+" else "")..result.pesos.." Pesos")
+			end
+			table.insert(lines,"")
+		end
+		recent.Text=if #lines>0 then table.concat(lines,"\n") else "No completed bonus events yet."
+		for _,message in ipairs(state.systemMessages or {}) do
+			if message.serial>self.seenSerial then
+				self.seenSerial=message.serial
+				if os.time()-message.at<=30 then table.insert(self.queue,message.text) end
+			end
+		end
+		while #self.queue>12 do table.remove(self.queue,1) end
+	end
+	function self:update(now)
+		if #self.queue==0 or now<self.nextMessage then return end
+		local channels=TextChatService:FindFirstChild("TextChannels")
+		local channel=channels and (channels:FindFirstChild("RBXSystem") or channels:FindFirstChild("RBXGeneral"))
+		if not channel then return end
+		local message=table.remove(self.queue,1)
+		local escaped=string.gsub(string.gsub(string.gsub(message,"&","&amp;"),"<","&lt;"),">","&gt;")
+		channel:DisplaySystemMessage("[Cloudpop System] "..escaped)
+		self.nextMessage=now+5
+	end
+	return self
+end
+return Features
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="LocalScript" referent="31">
         <Properties>
           <string name="Name">GameClient</string>
           <string name="Source"><![CDATA[-- Compact HUD. Roblox owns the avatar, camera, chat, movement and backpack controls.
@@ -1352,9 +1990,9 @@ local function initialize()
 	local aux=frame("AuxiliaryPanel",gui,UDim2.fromOffset(350,370),UDim2.new(0.5,0,1,-80))
 	aux.AnchorPoint,aux.Visible=Vector2.new(0.5,1),false
 	local auxTitle=label("Title",aux,"SETTINGS",UDim2.new(1,-70,0,44),UDim2.fromOffset(12,0),16)
-	local body=make("ScrollingFrame","Body",aux,{Size=UDim2.new(1,-20,1,-54),Position=UDim2.fromOffset(10,46),CanvasSize=UDim2.fromOffset(0,420),
+	local body=make("ScrollingFrame","Body",aux,{Size=UDim2.new(1,-20,1,-100),Position=UDim2.fromOffset(10,94),CanvasSize=UDim2.fromOffset(0,420),
 		ScrollBarThickness=4,BackgroundTransparency=1,BorderSizePixel=0,ScrollingDirection=Enum.ScrollingDirection.Y})
-	local settings=make("Frame","Settings",body,{Size=UDim2.new(1,-6,0,420),BackgroundTransparency=1})
+	local settings=make("Frame","Settings",body,{Size=UDim2.new(1,-6,0,780),BackgroundTransparency=1})
 	local looks=make("Frame","Looks",body,{Size=UDim2.new(1,-6,0,340),BackgroundTransparency=1})
 	local resize,render
 	local compactPresentation=false
@@ -1367,7 +2005,7 @@ local function initialize()
 	local cardsButton=button("CardsButton",gui,"Cards",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function()
 		if panelOpen and not auxiliary then panelOpen=false; resize() else openCards() end
 	end)
-	local looksButton=button("LooksButton",gui,"Looks",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function() auxiliary="Looks"; resize() end)
+	local looksButton=button("LooksButton",gui,"Shop",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function() auxiliary="Looks"; resize() end)
 	local settingsButton=button("SettingsButton",gui,"Settings",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function() auxiliary="Settings"; resize() end)
 	local reduced=button("reducedMotion",settings,"Reduced motion · Off",UDim2.new(1,0,0,44),UDim2.fromOffset(0,0),function()
 		if state then request("Setting","reducedMotion",not state.settings.reducedMotion) end
@@ -1391,8 +2029,16 @@ local function initialize()
 	local saveLabel=label("SaveStatus",settings,"",UDim2.new(1,0,0,56),UDim2.fromOffset(0,245),12)
 	label("Credits",settings,"Created by Kikapucchino",UDim2.new(1,0,0,28),UDim2.fromOffset(0,308),13)
 	label("AudioSlots",settings,"Human voice and music recordings are awaiting licensed audio.",UDim2.new(1,0,0,54),UDim2.fromOffset(0,342),12)
+	local features=require(waitFor(gui,"FeaturePanels")).new(body,settings,{make=make,label=label,button=button},Config,request)
+	require(waitFor(gui,"PetEffects")).start(function() return state and state.settings.reducedMotion end)
+	for index,name in ipairs({"Looks","Pets","Settings","Chest","Records"}) do
+		button("Tab"..name,aux,name,UDim2.new(0.2,-4,0,44),UDim2.new((index-1)*0.2,2,0,46),function() auxiliary=name;body.CanvasPosition=Vector2.new(0,0);resize() end).TextSize=11
+	end
 	local cosmeticButtons={}
-	for index,item in ipairs(Config.Catalog) do
+	local index=0
+	for _,item in ipairs(Config.Catalog) do
+		if item.category=="pet" then continue end
+		index+=1
 		cosmeticButtons[item.id]=button(item.id,looks,item.name,UDim2.new(1,0,0,48),UDim2.fromOffset(0,(index-1)*56),function() request("Cosmetic",item.id) end)
 	end
 	local function cosmeticColor(category,fallback)
@@ -1405,13 +2051,14 @@ local function initialize()
 		cardPanel.root.Visible=panelOpen and auxiliary==nil
 		aux.Visible=auxiliary~=nil
 		settings.Visible,looks.Visible=auxiliary=="Settings",auxiliary=="Looks"
+		features:show(auxiliary)
 		auxTitle.Text=if auxiliary then string.upper(auxiliary) else ""
 		aux.Size=UDim2.fromOffset(math.min(350,geometry.width),geometry.height)
 		aux.Position=UDim2.new(0.5,0,1,-geometry.footer)
 		compactPresentation=(cardPanel.root.Visible or aux.Visible) and viewport.Y-geometry.footer-geometry.height<235
 		hud.Visible=not compactPresentation
 		subtitles.Position=UDim2.new(0.5,0,0,if compactPresentation then 8 else 104)
-		body.CanvasSize=UDim2.fromOffset(0,if auxiliary=="Looks" then 340 else 408)
+		body.CanvasSize=UDim2.fromOffset(0,if auxiliary=="Looks" then 340 elseif auxiliary=="Settings" then 780 else features.heights[auxiliary] or 340)
 		local bottom=geometry.footer+(if cardPanel.root.Visible or aux.Visible then geometry.height+48 else 48)
 		for index,item in ipairs({cardsButton,looksButton,settingsButton}) do item.Position=UDim2.new(0.5,-138+(index-1)*94,1,-bottom) end
 		hud.Size=UDim2.fromOffset(math.min(330,viewport.X-20),90)
@@ -1433,7 +2080,9 @@ local function initialize()
 			mutes[key].Text=if value>0 then "Mute" else "Unmute"
 		end
 		saveLabel.Text=(state.saveStatus or "")..(if state.practice then "\nStudio practice · progress is temporary" else "")
+		features:render(state)
 		for _,item in ipairs(Config.Catalog) do
+			if item.category=="pet" then continue end
 			local suffix=if state.equipped[item.category]==item.id then "Equipped" elseif state.owned[item.id] then "Equip" else item.price.." Pesos"
 			cosmeticButtons[item.id].Text=item.name.." · "..suffix
 		end
@@ -1483,6 +2132,8 @@ local function initialize()
 	resize()
 	RunService.RenderStepped:Connect(function()
 		local now=workspace:GetServerTimeNow()
+		features:update(now)
+		if auxiliary=="Records" then body.CanvasSize=UDim2.fromOffset(0,math.max(820,246+features.recordsText.AbsoluteSize.Y+12)) end
 		if state then
 			local seconds=math.max(0,math.ceil(state.deadline-now))
 			if state.phase=="Intermission" then cardPanel:setStatus("Starts in "..seconds.."s") end
@@ -1515,7 +2166,45 @@ end
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="23">
+      <Item class="ModuleScript" referent="32">
+        <Properties>
+          <string name="Name">PetEffects</string>
+          <string name="Source"><![CDATA[-- Local visual interpolation of server-owned pets; no per-frame network updates or physics.
+local Players=game:GetService("Players")
+local RunService=game:GetService("RunService")
+local Pets={}
+function Pets.start(reducedMotion)
+	local pivots={}
+	local elapsed=0
+	RunService.RenderStepped:Connect(function(delta)
+		elapsed+=delta
+		if elapsed<1/30 then return end
+		delta=elapsed;elapsed=0
+		local folder=workspace:FindFirstChild("CloudpopPets")
+		if not folder then return end
+		local present={}
+		for _,model in ipairs(folder:GetChildren()) do
+			present[model]=true
+			local ownerId=model:GetAttribute("OwnerUserId")
+			local owner=if type(ownerId)=="number" then Players:GetPlayerByUserId(ownerId) else nil
+			local root=owner and owner.Character and owner.Character:FindFirstChild("HumanoidRootPart")
+			if not root then continue end
+			local moving=root.AssemblyLinearVelocity.Magnitude>1
+			local t=workspace:GetServerTimeNow()
+			local bob=if reducedMotion() then 0 else math.sin(t*(if moving then 8 else 2.5))*0.14
+			local target=root.CFrame*CFrame.new(3,0.1+bob,3)*CFrame.Angles(0,0,if reducedMotion() then 0 else math.sin(t*3)*0.06)
+			local nextPivot=if pivots[model] then pivots[model]:Lerp(target,1-math.exp(-10*math.min(delta,0.1))) else target
+			pivots[model]=nextPivot
+			model:PivotTo(nextPivot)
+		end
+		for model in pairs(pivots) do if not present[model] then pivots[model]=nil end end
+	end)
+end
+return Pets
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="33">
         <Properties>
           <string name="Name">WorldEffects</string>
           <string name="Source"><![CDATA[-- Cosmetic-only local animation: sixteen anchored balls, capped at 30 updates/sec.
@@ -1578,7 +2267,7 @@ return Effects
 ]]></string>
         </Properties>
       </Item>
-      <Item class="TextLabel" referent="24">
+      <Item class="TextLabel" referent="34">
         <Properties>
           <string name="Name">StartupStatus</string>
           <Color3 name="BackgroundColor3">
@@ -1599,7 +2288,7 @@ return Effects
             <YS>0</YS>
             <YO>100</YO>
           </UDim2>
-          <string name="Text">CLOUDPOP COMMONS · build 0.3.0
+          <string name="Text">CLOUDPOP COMMONS · build 0.4.0
 Opening your lobby…</string>
           <Color3 name="TextColor3">
             <R>0.886</R>
@@ -1613,7 +2302,14 @@ Opening your lobby…</string>
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="25">
+  <Item class="TextChatService" referent="35">
+    <Properties>
+      <string name="Name">TextChatService</string>
+      <token name="ChatVersion">1</token>
+      <bool name="CreateDefaultTextChannels">true</bool>
+    </Properties>
+  </Item>
+  <Item class="Workspace" referent="36">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-100</float>

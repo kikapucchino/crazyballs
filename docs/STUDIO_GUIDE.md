@@ -1,4 +1,4 @@
-# Studio testing · build 0.3.0
+# Studio testing · build 0.4.0
 
 ## 1. Open and play
 
@@ -14,7 +14,7 @@ Desktop cards start visible in a bottom-center horizontal tray: **two main cards
 
 1. Confirm both 5×5 cards are dealt during **Starts in 15**, with different numbers within each card and a multiplier from 1×–20× on each. Overlap between different cards is allowed.
 2. At zero the server changes to Drawing and announces the start. Its 1.5-second cue precedes the first ball; then 20 balls are drawn at four-second intervals.
-3. Try clicking an uncalled number: it must not mark. A called/unmarked number shows **•**; click/tap it to change to **✓**. Earlier called numbers remain markable until LastCall ends. No automatic-mark control remains.
+3. Try clicking an uncalled number: it must not mark. A called/unmarked number shows **•**; click/tap it to change to **✓**. Earlier called numbers remain markable until LastCall ends. Settings now contains a server-verified Auto Mark toggle for owners of the configured pass; nonowners continue marking for free.
 4. Watch the bonus cards: Coin flip needs three matches, Duck hunt and Pačinki four. Go CRazy has a visibly pending count; it must not qualify from an empty list. More than one bonus can qualify.
 5. Confirm each main multiplier is unchanged from the beginning of the round. It does not multiply participation or bonus results.
 6. At results, a participating player receives the existing 20-Pesos participation reward. Main pattern payouts and bonus payouts are still inactive. A valid mark or intentionally opening/equipping cards establishes participation; passive receipt of cards does not.
@@ -30,6 +30,9 @@ ReplicatedStorage
     ├── AudioManifest                ModuleScript
     ├── CardLayout                   ModuleScript
     ├── Economy                      ModuleScript
+    ├── ChestRules                   ModuleScript
+    ├── PayoutRules                  ModuleScript
+    ├── PetBuilder                   ModuleScript
     ├── GameRules                    ModuleScript
     ├── BonusRules                   ModuleScript (calculation groundwork)
     └── ExactInteger                 ModuleScript (calculation groundwork)
@@ -39,6 +42,11 @@ ServerScriptService
     ├── ProfileStore                 ModuleScript
     ├── Workshop                     ModuleScript
     ├── LobbyPlan                    ModuleScript
+    ├── PassService                  ModuleScript
+    ├── PetService                   ModuleScript
+    ├── PayoutStore                  ModuleScript
+    ├── GlobalPayouts                ModuleScript
+    ├── ResultFeed                   ModuleScript
     └── CardHolder                   ModuleScript
 StarterGui
 └── CloudpopUI                       ScreenGui, ResetOnSpawn=false
@@ -46,10 +54,13 @@ StarterGui
     ├── GameClient                   LocalScript
     ├── CardPanel                    ModuleScript
     ├── AudioController              ModuleScript
+    ├── FeaturePanels                ModuleScript
+    ├── PetEffects                   ModuleScript
     └── WorldEffects                 ModuleScript
 Workspace
 Lighting
 SoundService
+TextChatService                     Default TextChatService channels enabled
 ```
 
 Runtime instances include `Cloudpop.Remotes.Action`/`State`, `Workspace.CloudpopWorkshop`, the replicated `Cards` Tool in each player's Backpack/Character, the cloned UI in PlayerGui, and local `CloudpopMusic`, `CloudpopVoice` and four effect Sounds in SoundService.
@@ -80,7 +91,11 @@ Automated tests check tray geometry and collision-clear room routes, not actual 
 
 Follow [AUDIO_SETUP.md](AUDIO_SETUP.md) to supply 68 licensed human recordings and the music/effect tracks. There is no synthetic speech. Verify preloading, asset permissions, spoken-number matching, no overlap, music looping, smooth switching, ducking/restoration and individual mute settings. Bonus voice/music entries are prepared, but actual bonus-game triggering remains unfinished.
 
-## 6. Saving and rebuilding
+## 6. New feature setup
+
+Follow [FEATURE_SETUP.md](FEATURE_SETUP.md) for the actual pass ID/price setup, pet testing, permanent chest status, supported system chat and separate rolling global records. Shop and Settings include Looks/Pets/Settings/Chest/Records tabs; each panel scrolls on small screens. Global records require live servers and are excluded from all Studio sessions.
+
+## 7. Saving and rebuilding
 
 Studio practice never calls DataStore and resets on Stop. For persistence tests use a **separate private test experience**:
 
@@ -89,7 +104,7 @@ Studio practice never calls DataStore and resets on Stop. For persistence tests 
 3. Earn participation Pesos, purchase/equip a cosmetic and change voice volume. Wait for **Progress saved** in Settings, stop and rejoin.
 4. Verify balance, ownership, style and all three volumes persist. Also test through the normal Roblox client.
 
-The store stays `CloudpopProfiles_v1`, key `player_<UserId>`. Existing saves retain their balance/cosmetics; missing voice volume gets 0.8. Old automatic-mark settings are discarded. Signed/huge bonus balances are not written to this numeric version-1 ledger.
+The store stays `CloudpopProfiles_v1`, key `player_<UserId>`. Existing saves retain their balance/cosmetics; missing voice volume gets 0.8. Auto Mark preference, pet ownership/equipment, chest receipts and payout outbox now persist; actual pass access is verified separately. Signed/huge bonus balances are not written to this numeric version-1 ledger.
 
 UpdateAsync, single-owner session leases, retries, 45-second autosave and close handling remain unchanged. Failed loads never become blank live profiles; mutations stop near an unrenewed lease's expiry. A crash/storage outage can lose changes since the last successful save. Do not point Studio tests at live player data.
 

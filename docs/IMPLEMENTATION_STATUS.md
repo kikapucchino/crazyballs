@@ -1,4 +1,10 @@
-# Implementation status · 0.3.0
+# Implementation status · 0.4.0
+
+## Latest additions
+
+Auto Mark pass integration, three guaranteed cosmetic pets, free-chest bookkeeping and UI, system-message/history plumbing and durable rolling global payout records are implemented. See [FEATURE_SETUP.md](FEATURE_SETUP.md) for exact runtime behavior and limitations. The real pass ID and licensed audio assets must be configured externally.
+
+The chest upgrade is **permanent**. Its reset schedule/timezone, exact increase, cap/stacking, affected bonuses and fixed/random reward still require answers. Its probability effect and claims remain disabled. This does not block the independent pet, pass or record systems.
 
 ## Confirmed decisions
 
@@ -35,7 +41,7 @@ The active controller executes assignment → synchronized 15-second intermissio
 
 **No real bonus queue runs yet.** Retrigger policy, interruption timing and bonus-resolution phases depend on the requested decisions. There is no placeholder spin that pretends to award a real outcome.
 
-`GameRules` now deals two 5×5 cards with no repeated numbers inside a card. All 25 cells are currently numbered; the unanswered free-center decision is not treated as a final rule. Manual server-validated marks are active, including after a previous draw. Main pattern validation and payouts remain disabled pending center/pattern/base-reward decisions. Auto-mark was explicitly removed by the new specification; legacy saved settings and requests cannot re-enable it.
+`GameRules` now deals two 5×5 cards with no repeated numbers inside a card. All 25 cells are currently numbered; the unanswered free-center decision is not treated as a final rule. Manual server-validated marks are active, including after a previous draw. Main pattern validation and payouts remain disabled pending center/pattern/base-reward decisions. The latest request reintroduces Auto Mark as a permanent pass. Its saved preference never grants access without a server ownership check; nonowners mark manually.
 
 Each card independently receives an integer multiplier from 1 through 20. `Config.Main.MultiplierWeights` contains 20 weights of 1: each result has probability 1/20 = 5%. To change odds, edit the corresponding nonnegative integer weights; probability is weight divided by their sum. The sum must be positive. This table is the sole distribution; spending/player behavior is never an input. Multipliers do not change mid-round and are disclosed before the first draw.
 

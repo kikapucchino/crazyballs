@@ -51,6 +51,10 @@ function Mock.instances()
 	function methods:GetFullName() return self.Name end
 	function methods:GetPropertyChangedSignal() return Mock.signal() end
 	function methods:IsA(class) return self.ClassName == class end
+	function methods:Destroy() self.Parent=nil;self.destroyed=true end
+	function methods:SetAttribute(key,value) self.attributes=self.attributes or {};self.attributes[key]=value end
+	function methods:GetAttribute(key) return self.attributes and self.attributes[key] end
+	function methods:PivotTo(value) self.pivot=value end
 	function methods:Play() self.IsPlaying = true end
 	function methods:Stop() self.IsPlaying = false end
 	return new, all, methods
@@ -63,7 +67,7 @@ function Mock.globals()
 		rawset(self, key, group)
 		return group
 	end })
-	return { Enum = enum, Vector3 = { new = vector }, Vector2 = { new = vector }, Color3 = { fromRGB = tuple },
+	return { os=os, CFrame={new=tuple,lookAt=tuple,Angles=tuple}, Enum = enum, Vector3 = { new = vector }, Vector2 = { new = vector }, Color3 = { fromRGB = tuple },
 		UDim = { new = tuple }, UDim2 = { new = tuple, fromOffset = tuple, fromScale = tuple }, TweenInfo = { new = tuple } }
 end
 return Mock

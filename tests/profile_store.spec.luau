@@ -72,13 +72,13 @@ test("save, release and rejoin retain the balance, cosmetics and settings", func
 	first.data.pesos = 100
 	assert(Economy.purchase(first.data, Config.Catalog, "marker_berry"))
 	first.data.settings.voiceVolume = 0.3
-	first.data.settings.autoMark = true -- legacy field is deliberately discarded
+	first.data.settings.autoMark = true -- preference is saved; ownership is separately reverified
 	assert(store.save(first, false))
 	store.close(first)
 	assert(db.records.player_1.lock == nil)
 	local second = store.load({ UserId = 1 })
 	assert(second.data.pesos == 40 and second.data.owned.marker_berry)
-	assert(second.data.equipped.marker == "marker_berry" and second.data.settings.voiceVolume == 0.3 and second.data.settings.autoMark == nil)
+	assert(second.data.equipped.marker == "marker_berry" and second.data.settings.voiceVolume == 0.3 and second.data.settings.autoMark == true)
 end)
 
 test("an expired session cannot overwrite the replacement server's save", function()
@@ -136,6 +136,31 @@ test("failed saves retain the previous persisted data and report retry status", 
 	assert(db.records.player_1.data.pesos == 0 and profile.saveStatus == "Save delayed · retrying")
 	assert(store.save(profile, false))
 	assert(db.records.player_1.data.pesos == 45)
+end)
+
+test("only successful durable saves notify the payout outbox observer", function()
+	local store,db=environment(false);local profile=store.load({UserId=1});local notices=0
+	profile.data.pesos=20
+	profile.data.payoutOutbox={{id="receipt",userId=1,playerName="User1",source="Round participation",multiplier="1",pesos=20,at=1800000000}}
+	store.onSaved=function(_,snapshot)
+		notices+=1
+		assert(db.records.player_1.data.pesos==20 and db.records.player_1.data.payoutOutbox[1].id=="receipt")
+		assert(snapshot.payoutOutbox[1].pesos==20)
+	end
+	db.failures=3;assert(not store.save(profile,false) and notices==0)
+	assert(store.save(profile,false) and notices==1)
+	store.close(profile);local rejoined=store.load({UserId=1})
+	assert(rejoined.data.payoutOutbox[1].id=="receipt")
+end)
+test("pets, permanent chest receipts and pass preference survive save and rejoin",function()
+	local store=environment(false);local profile=store.load({UserId=1});profile.data.pesos=500
+	assert(Economy.purchase(profile.data,Config.Catalog,"pet_tassel"))
+	profile.data.chest={lastClaimAt=1800000000,lastClaimKey="20000",claims=4,rewardUnits=4}
+	profile.data.settings.autoMark=true;store.close(profile)
+	local nextProfile=store.load({UserId=1})
+	assert(nextProfile.data.equipped.pet=="pet_tassel" and nextProfile.data.pesos==0)
+	assert(nextProfile.data.chest.claims==4 and nextProfile.data.chest.lastClaimAt==1800000000)
+	assert(nextProfile.data.settings.autoMark)
 end)
 
 print("Profile persistence: " .. passed .. " tests passed (mock DataStore)")

@@ -8,6 +8,7 @@ local Mock = require("./mock")
 local Config = require("../src/shared/Config")
 
 Config.ResultsSeconds = 1
+Config.AutoMarkPass.Id=123
 math.randomseed(118)
 
 local passed = 0
@@ -60,11 +61,11 @@ local function signal()
 end
 
 local snapshots, playersList, savedProfiles = {}, {}, {}
-local shared = { Config = "Config", GameRules = "Rules", Economy = "Economy", AudioManifest = "Manifest" }
+local shared = { Config = "Config", GameRules = "Rules", Economy = "Economy", AudioManifest = "Manifest", ChestRules="ChestRules",PetBuilder="PetBuilder" }
 local players = { PlayerAdded = signal(), PlayerRemoving = signal() }
 function players:GetPlayers() return table.clone(playersList) end
 local function player(id)
-	local object = { UserId = id, Parent = players, CharacterAdded = signal() }
+	local object = { UserId = id, Name="User"..id, Parent = players, CharacterAdded = signal() }
 	function object:Kick(reason) self.kicked = reason end
 	table.insert(playersList, object)
 	return object
@@ -83,7 +84,13 @@ function profileStore.writable(profile) return profile and not profile.closing e
 function profileStore.save() return true end
 function profileStore.close(profile) profile.closing = true end
 local modules = { Manifest = require("../src/shared/AudioManifest"), Config = Config, Rules = Rules, Economy = Economy, ProfileStore = profileStore, CardHolder = { give = function() end } }
-local services = { Players = players, ReplicatedStorage = { WaitForChild = function() return shared end }, Lighting = {} }
+modules.ChestRules=require("../src/shared/ChestRules")
+modules.PassService=require("../src/server/PassService")
+modules.PetBuilder={}
+modules.PetService={new=function() return {sync=function() end,remove=function() end} end}
+modules.ResultFeed=require("../src/server/ResultFeed")
+modules.GlobalPayouts={new=function() return {submit=function() end,view=function() return {status="Studio test payouts are excluded"} end,pump=function() end} end}
+local services = { RunService={IsStudio=function() return true end},MarketplaceService={PromptGamePassPurchaseFinished=signal(),UserOwnsGamePassAsync=function(_,id) return id==2 end},HttpService={},Players = players, ReplicatedStorage = { WaitForChild = function() return shared end }, Lighting = {} }
 local shutdown
 local gameMock = {
 	GetService = function(_, name) return services[name] end,
@@ -107,7 +114,7 @@ taskMock.spawn(function()
 	runServer(gameMock, workspaceMock, taskMock, instance,
 		{ new = function() return { NextInteger = function(_, low, high) return math.random(low, high) end } end },
 		function(name) return assert(modules[name], name) end,
-		{ Parent = { ProfileStore = "ProfileStore", Workshop = "Workshop", CardHolder = "CardHolder" } }, { clock = function() return scheduler.now end })
+		{ Parent = { ProfileStore = "ProfileStore", Workshop = "Workshop", CardHolder = "CardHolder",PassService="PassService",PetService="PetService",ResultFeed="ResultFeed",GlobalPayouts="GlobalPayouts" } }, { clock = function() return scheduler.now end,time=function() return 1800000000+math.floor(scheduler.now) end })
 end)
 local function request(target, name, a, b, c, roundId)
 	shared.Remotes.Action.OnServerEvent:Fire(target, name, a, b, c, roundId or snapshots[target].roundId)
@@ -130,7 +137,11 @@ check(multipliers[1]>=1 and multipliers[1]<=20 and multipliers[2]>=1 and multipl
 request(ada,"Mark",1,1)
 check(not snapshots[ada].cards[1].cells[1].marked,"manual marks cannot mark uncalled numbers")
 request(ada,"Setting","autoMark",true)
-check(snapshots[ada].settings.autoMark == nil,"legacy auto-mark requests are ignored")
+check(snapshots[ada].settings.autoMark == false,"unowned auto-mark requests are rejected")
+request(ben,"Setting","autoMark",true)
+check(snapshots[ben].pass.owned and snapshots[ben].settings.autoMark,"verified owner can enable Auto Mark")
+request(ada,"ClaimChest")
+check(savedProfiles[ada].data.chest.claims==0,"unconfirmed chest remote cannot grant a reward")
 check(#snapshots[ada].bonuses == 4 and #snapshots[ada].bonuses[1].cells == 3 and #snapshots[ada].bonuses[2].cells == 4,
 	"every player gets separate 3/4/4 bonus cards and an explicit pending wheel card")
 check(snapshots[ada].deck == nil and #snapshots[ada].history == 0, "snapshots do not expose future draws or hidden mappings")
@@ -184,7 +195,9 @@ end
 check(true, "each player's qualification is computed from their own card")
 check(result.cards[1].multiplier == multipliers[1] and result.cards[2].multiplier == multipliers[2], "card multipliers are fixed through the full round")
 for _, card in ipairs(result.cards) do for _, cell in ipairs(card.cells) do assert(not cell.marked) end end
-check(true,"called numbers never mark main cells automatically")
+check(true,"called numbers never mark main cells for an unowned player")
+for _,card in ipairs(snapshots[ben].cards) do for _,cell in ipairs(card.cells) do assert(cell.marked==(seen[cell.number]==true)) end end
+check(true,"verified Auto Mark owner marks exactly called matching cells on the shared draw")
 check(result.pesos == 20 and result.summary.bonusPending, "only existing participation reward is paid while bonus rules are pending")
 request(ada, "Participate")
 request(ada, "Reward", 9999)

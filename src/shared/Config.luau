@@ -1,7 +1,10 @@
 -- Public tuning only. Outcomes, decks, and hidden selections live on the server.
 return {
 	Title = "Cloudpop Commons",
-	Build = "0.3.0",
+	Build = "0.4.0",
+	AutoMarkPass = { Id = 0, IntendedPrice = 60 },
+	Chest = { Permanent = true, ClaimRulesConfirmed = false, EffectEnabled = false, ResetMode = "", ResetOffsetSeconds = 0,
+		RewardMode = "", RewardUnits = 0 },
 	DataStoreName = "CloudpopProfiles_v1",
 	IntermissionSeconds = 15,
 	DrawSeconds = 4,
@@ -30,6 +33,9 @@ return {
 		SFX = { draw = "", mark = "", qualify = "", reveal = "", result = "" },
 	},
 	Catalog = {
+		{ id="pet_lumen", name="Lumen Loaf", category="pet", price=500, color={131,223,239}, description="A tiny lantern companion with soft sails" },
+		{ id="pet_prism", name="Prismote", category="pet", price=500, color={179,176,244}, description="A curious cubic creature with orbiting beads" },
+		{ id="pet_tassel", name="Tide Tassel", category="pet", price=500, color={127,201,183}, description="A sea-glass companion with three flowing ribbons" },
 		{ id = "marker_sun", name = "Sunbeam", category = "marker", price = 0, color = { 255, 199, 88 }, description = "A warm golden stamp" },
 		{ id = "marker_berry", name = "Berry pop", category = "marker", price = 60, color = { 236, 128, 166 }, description = "A berry-pink stamp" },
 		{ id = "marker_mint", name = "Mint breeze", category = "marker", price = 60, color = { 112, 222, 183 }, description = "A mint-green stamp" },

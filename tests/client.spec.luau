@@ -2,6 +2,9 @@ local startClient = require("./.generated/ClientHarness")
 local loadAudio = require("./.generated/AudioControllerHarness")
 local loadPanel = require("./.generated/CardPanelHarness")
 local loadEffects = require("./.generated/WorldEffectsHarness")
+local loadFeatures = require("./.generated/FeaturePanelsHarness")
+local loadPets = require("./.generated/PetEffectsHarness")
+local loadPetBuilder = require("./.generated/PetBuilderHarness")
 local loadHolder = require("./.generated/CardHolderHarness")
 local Config = require("../src/shared/Config")
 local Economy = require("../src/shared/Economy")
@@ -25,6 +28,9 @@ local function environment(missing)
 	local panel = new("ModuleScript", "CardPanel", gui)
 	local config, economy = new("ModuleScript", "Config", shared), new("ModuleScript", "Economy", shared)
 	local audioModule, effectsModule = new("ModuleScript", "AudioController", gui), new("ModuleScript", "WorldEffects", gui)
+	local featureModule=new("ModuleScript","FeaturePanels",gui)
+	local petEffects=new("ModuleScript","PetEffects",gui)
+	local petBuilder=new("ModuleScript","PetBuilder",shared)
 	local remotes
 	if not missing then
 		remotes = new("Folder", "Remotes", shared)
@@ -32,7 +38,7 @@ local function environment(missing)
 		new("RemoteEvent", "State", remotes)
 	end
 	local player = new("Player")
-	local services = { ContentProvider = { PreloadAsync = function(_, ids, callback)
+	local services = { MarketplaceService={},TextChatService=new("TextChatService"), ContentProvider = { PreloadAsync = function(_, ids, callback)
 		for _, id in ipairs(ids) do callback(id, "AssetFetchStatus.Success") end
 	end }, UserInputService = { TouchEnabled = false }, Players = { LocalPlayer = player }, ReplicatedStorage = replication, SoundService = new("SoundService"),
 		RunService = { RenderStepped = Mock.signal() }, TweenService = { Create = function(_, target, _, properties)
@@ -54,7 +60,7 @@ local function environment(missing)
 	}
 	env.Instance, env.warn = { new = new }, function(message) table.insert(warnings, message) end
 	env.require = function(module)
-		if module == config then return Config elseif module == economy then return Economy
+		if module==featureModule then return loadFeatures(env) elseif module==petEffects then return loadPets(env) elseif module==petBuilder then return loadPetBuilder(env) elseif module == config then return Config elseif module == economy then return Economy
 		elseif module == panel then return loadPanel(env) elseif module == layout then return require("../src/shared/CardLayout") elseif module == manifest then return require("../src/shared/AudioManifest") elseif module == audioModule then return loadAudio(env) elseif module == effectsModule then return loadEffects(env) end
 		error("Unknown module")
 	end
@@ -208,5 +214,42 @@ test("unloaded voice assets fall back to the correct subtitle without delayed pl
 	audio:announce({id=1,key="number_9",text="Number 9.",at=0,duration=1.5},0)
 	assert(audio:update(0)=="Number 9." and not h.services.SoundService.CloudpopVoice.IsPlaying)
 	assert(audio:update(2)=="")
+end)
+test("pass panel shows actual platform price, flags mismatch and uses official purchase flow",function()
+	local h=environment();local prompted=nil
+	h.services.MarketplaceService.GetProductInfoAsync=function(_,id) assert(id==123);return {PriceInRobux=45,IsForSale=true} end
+	h.services.MarketplaceService.PromptGamePassPurchase=function(_,player,id) assert(player==h.player);prompted=id end
+	startClient(h.env)
+	local data=snapshot("Intermission");data.pass={id=123,intendedPrice=60,configured=true,owned=false,status="Not owned"}
+	h.remotes.State.OnClientEvent:Fire(data)
+	assert(h.gui:FindFirstChild("BuyAutoMark",true).Text=="Buy · 45 Robux")
+	assert(string.find(h.gui:FindFirstChild("PassStatus",true).Text,"differs from intended 60"))
+	h.gui:FindFirstChild("BuyAutoMark",true).Activated:Fire();assert(prompted==123)
+	local count=#h.requests;h.gui:FindFirstChild("ToggleAutoMark",true).Activated:Fire();assert(#h.requests==count)
+	data.pass.owned=true;h.remotes.State.OnClientEvent:Fire(data);h.gui:FindFirstChild("ToggleAutoMark",true).Activated:Fire()
+	assert(h.requests[#h.requests][1]=="Setting" and h.requests[#h.requests][2]=="autoMark")
+end)
+test("pet previews, chest gate and empty records render without fabricated wins",function()
+	local h=environment();startClient(h.env);local data=snapshot("Intermission")
+	data.chest={configured=false,canClaim=false,reason="Rules pending"};data.topPayout={status="Updated 1800000000"};data.recentBonuses={}
+	h.remotes.State.OnClientEvent:Fire(data)
+	assert(h.gui:FindFirstChild("pet_lumenPreview",true).CurrentCamera)
+	assert(h.gui:FindFirstChild("TopPayout",true).Text=="No qualifying payouts in the last 24 hours.")
+	local count=#h.requests;h.gui:FindFirstChild("ClaimChest",true).Activated:Fire();assert(#h.requests==count)
+	h.gui:FindFirstChild("Pets",true).pet_lumen.Activated:Fire();assert(h.requests[#h.requests][1]=="Cosmetic" and h.requests[#h.requests][2]=="pet_lumen")
+	h.gui:FindFirstChild("UnequipPet",true).Activated:Fire();assert(h.requests[#h.requests][1]=="UnequipPet")
+end)
+test("system chat labels and escapes server results and rate limits duplicate snapshots",function()
+	local h=environment();local messages={};local channels=h.new("Folder","TextChannels",h.services.TextChatService)
+	local channel=h.new("TextChannel","RBXSystem",channels)
+	channel.DisplaySystemMessage=function(_,text) table.insert(messages,text) end
+	local now=1;h.env.workspace.GetServerTimeNow=function() return now end
+	startClient(h.env);local data=snapshot("Intermission")
+	data.systemMessages={{id="one",serial=1,at=os.time(),text="<user> +20 Pesos"},{id="two",serial=2,at=os.time(),text="Second event"}}
+	h.remotes.State.OnClientEvent:Fire(data);h.remotes.State.OnClientEvent:Fire(data)
+	h.services.RunService.RenderStepped:Fire(0.1);h.services.RunService.RenderStepped:Fire(0.1)
+	assert(#messages==1 and messages[1]=="[Cloudpop System] &lt;user&gt; +20 Pesos")
+	now=7;h.services.RunService.RenderStepped:Fire(0.1);assert(#messages==2)
+	now=14;h.services.RunService.RenderStepped:Fire(0.1);assert(#messages==2)
 end)
 print("Client/tool/audio: " .. passed .. " tests passed (mock Roblox services)")

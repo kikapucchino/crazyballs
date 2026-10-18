@@ -26,7 +26,7 @@ class PlaceTests(unittest.TestCase):
             clients = root.findall('./Item[@class="StarterGui"]/Item[@class="ScreenGui"]/Item[@class="LocalScript"]')
             self.assertEqual(len(scripts), 1)
             self.assertEqual(len(clients), 1)
-            self.assertEqual(len(root.findall('./Item[@class="ReplicatedStorage"]//Item[@class="ModuleScript"]')), 7)
+            self.assertEqual(len(root.findall('./Item[@class="ReplicatedStorage"]//Item[@class="ModuleScript"]')), len(list((ROOT / 'src/shared').glob('*.luau'))))
             self.assertEqual(root.attrib['version'], '4')
             workspace = root.find('./Item[@class="Workspace"]/Properties')
             height = workspace.find('./*[@name="FallenPartsDestroyHeight"]')

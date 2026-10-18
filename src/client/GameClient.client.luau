@@ -86,9 +86,9 @@ local function initialize()
 	local aux=frame("AuxiliaryPanel",gui,UDim2.fromOffset(350,370),UDim2.new(0.5,0,1,-80))
 	aux.AnchorPoint,aux.Visible=Vector2.new(0.5,1),false
 	local auxTitle=label("Title",aux,"SETTINGS",UDim2.new(1,-70,0,44),UDim2.fromOffset(12,0),16)
-	local body=make("ScrollingFrame","Body",aux,{Size=UDim2.new(1,-20,1,-54),Position=UDim2.fromOffset(10,46),CanvasSize=UDim2.fromOffset(0,420),
+	local body=make("ScrollingFrame","Body",aux,{Size=UDim2.new(1,-20,1,-100),Position=UDim2.fromOffset(10,94),CanvasSize=UDim2.fromOffset(0,420),
 		ScrollBarThickness=4,BackgroundTransparency=1,BorderSizePixel=0,ScrollingDirection=Enum.ScrollingDirection.Y})
-	local settings=make("Frame","Settings",body,{Size=UDim2.new(1,-6,0,420),BackgroundTransparency=1})
+	local settings=make("Frame","Settings",body,{Size=UDim2.new(1,-6,0,780),BackgroundTransparency=1})
 	local looks=make("Frame","Looks",body,{Size=UDim2.new(1,-6,0,340),BackgroundTransparency=1})
 	local resize,render
 	local compactPresentation=false
@@ -101,7 +101,7 @@ local function initialize()
 	local cardsButton=button("CardsButton",gui,"Cards",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function()
 		if panelOpen and not auxiliary then panelOpen=false; resize() else openCards() end
 	end)
-	local looksButton=button("LooksButton",gui,"Looks",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function() auxiliary="Looks"; resize() end)
+	local looksButton=button("LooksButton",gui,"Shop",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function() auxiliary="Looks"; resize() end)
 	local settingsButton=button("SettingsButton",gui,"Settings",UDim2.fromOffset(88,44),UDim2.fromOffset(0,0),function() auxiliary="Settings"; resize() end)
 	local reduced=button("reducedMotion",settings,"Reduced motion · Off",UDim2.new(1,0,0,44),UDim2.fromOffset(0,0),function()
 		if state then request("Setting","reducedMotion",not state.settings.reducedMotion) end
@@ -125,8 +125,16 @@ local function initialize()
 	local saveLabel=label("SaveStatus",settings,"",UDim2.new(1,0,0,56),UDim2.fromOffset(0,245),12)
 	label("Credits",settings,"Created by Kikapucchino",UDim2.new(1,0,0,28),UDim2.fromOffset(0,308),13)
 	label("AudioSlots",settings,"Human voice and music recordings are awaiting licensed audio.",UDim2.new(1,0,0,54),UDim2.fromOffset(0,342),12)
+	local features=require(waitFor(gui,"FeaturePanels")).new(body,settings,{make=make,label=label,button=button},Config,request)
+	require(waitFor(gui,"PetEffects")).start(function() return state and state.settings.reducedMotion end)
+	for index,name in ipairs({"Looks","Pets","Settings","Chest","Records"}) do
+		button("Tab"..name,aux,name,UDim2.new(0.2,-4,0,44),UDim2.new((index-1)*0.2,2,0,46),function() auxiliary=name;body.CanvasPosition=Vector2.new(0,0);resize() end).TextSize=11
+	end
 	local cosmeticButtons={}
-	for index,item in ipairs(Config.Catalog) do
+	local index=0
+	for _,item in ipairs(Config.Catalog) do
+		if item.category=="pet" then continue end
+		index+=1
 		cosmeticButtons[item.id]=button(item.id,looks,item.name,UDim2.new(1,0,0,48),UDim2.fromOffset(0,(index-1)*56),function() request("Cosmetic",item.id) end)
 	end
 	local function cosmeticColor(category,fallback)
@@ -139,13 +147,14 @@ local function initialize()
 		cardPanel.root.Visible=panelOpen and auxiliary==nil
 		aux.Visible=auxiliary~=nil
 		settings.Visible,looks.Visible=auxiliary=="Settings",auxiliary=="Looks"
+		features:show(auxiliary)
 		auxTitle.Text=if auxiliary then string.upper(auxiliary) else ""
 		aux.Size=UDim2.fromOffset(math.min(350,geometry.width),geometry.height)
 		aux.Position=UDim2.new(0.5,0,1,-geometry.footer)
 		compactPresentation=(cardPanel.root.Visible or aux.Visible) and viewport.Y-geometry.footer-geometry.height<235
 		hud.Visible=not compactPresentation
 		subtitles.Position=UDim2.new(0.5,0,0,if compactPresentation then 8 else 104)
-		body.CanvasSize=UDim2.fromOffset(0,if auxiliary=="Looks" then 340 else 408)
+		body.CanvasSize=UDim2.fromOffset(0,if auxiliary=="Looks" then 340 elseif auxiliary=="Settings" then 780 else features.heights[auxiliary] or 340)
 		local bottom=geometry.footer+(if cardPanel.root.Visible or aux.Visible then geometry.height+48 else 48)
 		for index,item in ipairs({cardsButton,looksButton,settingsButton}) do item.Position=UDim2.new(0.5,-138+(index-1)*94,1,-bottom) end
 		hud.Size=UDim2.fromOffset(math.min(330,viewport.X-20),90)
@@ -167,7 +176,9 @@ local function initialize()
 			mutes[key].Text=if value>0 then "Mute" else "Unmute"
 		end
 		saveLabel.Text=(state.saveStatus or "")..(if state.practice then "\nStudio practice · progress is temporary" else "")
+		features:render(state)
 		for _,item in ipairs(Config.Catalog) do
+			if item.category=="pet" then continue end
 			local suffix=if state.equipped[item.category]==item.id then "Equipped" elseif state.owned[item.id] then "Equip" else item.price.." Pesos"
 			cosmeticButtons[item.id].Text=item.name.." · "..suffix
 		end
@@ -217,6 +228,8 @@ local function initialize()
 	resize()
 	RunService.RenderStepped:Connect(function()
 		local now=workspace:GetServerTimeNow()
+		features:update(now)
+		if auxiliary=="Records" then body.CanvasSize=UDim2.fromOffset(0,math.max(820,246+features.recordsText.AbsoluteSize.Y+12)) end
 		if state then
 			local seconds=math.max(0,math.ceil(state.deadline-now))
 			if state.phase=="Intermission" then cardPanel:setStatus("Starts in "..seconds.."s") end
