@@ -1,6 +1,6 @@
 # Studio playtesting, one step at a time
 
-Complete each step before moving to the next. The project is already assembled in `dist/CloudpopCommons.rbxlx`.
+Complete each step before moving to the next. The project is already assembled in `dist/CloudpopCommons.rbxl` using Rojo's standard serializer. Use this binary file for build 0.1.2; no plugin or manual setup is required to open it.
 
 ## 1. Open the prototype and play one round
 
@@ -43,7 +43,9 @@ SoundService
 
 During Play, Roblox clones `StarterGui.CloudpopUI` into `Players.<you>.PlayerGui`. Its LocalScript builds the game interface inside that ScreenGui. The server creates `ReplicatedStorage.Cloudpop.Remotes.Action` and `.State` as RemoteEvents and `Workspace.CloudpopWorkshop` as a Model. The client also creates `SoundService.SoftDrawPing` as a Sound. Do not manually duplicate these runtime instances.
 
-The packaged startup message is visible before any modules load. The client waits for modules and remotes with timeouts; a startup failure leaves a readable message instead of only the 3D workshop. The first error line appears on screen, and the full stack trace is recorded in Studio's Output panel.
+The packaged startup message is visible before any modules load. Build 0.1.2 initially says **Waiting for the client script to start**. When the LocalScript begins, that changes to **Client started**, followed by the dependency being loaded. An unchanged initial message means the LocalScript has not reached initialization; check Output for compile or script-execution errors. This is different from a running client waiting for server data.
+
+The client waits for modules and remotes with timeouts. If initialization throws, the first error line appears on screen and the full stack trace is recorded in Studio's Output panel. These diagnostics do not establish that a Studio-specific problem has been fixed until the game successfully starts there.
 
 The authoritative deck and balances live only on the server. The client receives only the draw history and its own card/profile view. The client sends intentions, never a reward amount or price. The server checks phase, round ID, indices, ownership, and draw eligibility and rate-limits requests.
 
@@ -106,6 +108,6 @@ This project has **no Robux purchase system**. Add one later only with guarantee
 
 Begin by changing `Config.DrawSeconds` from `5` to `4`. Test one solo round and one two-client round. Confirm both clients still see the same draw and the Tailwind event still happens after ball eight.
 
-When editing source files in this repository, run `python3 tools/build_place.py` and open the rebuilt place. When editing directly in Studio, save a separate copy: rebuilding from repository source will not include those Studio-only changes. Rojo is an optional way to synchronize files later.
+When editing source files in this repository, install Rojo (or run the cloud bootstrap), run `python3 tools/build_place.py`, and open the rebuilt `.rbxl` place. When editing directly in Studio, save a separate copy: rebuilding from repository source will not include those Studio-only changes. Rojo's live sync is optional.
 
 Next development milestone: add one new target pattern with rule tests. Additional events and monetization should follow after the existing multiplayer and save checks pass in Studio.

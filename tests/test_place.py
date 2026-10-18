@@ -18,7 +18,7 @@ class PlaceTests(unittest.TestCase):
             builder.build(destination)
             root = ET.parse(destination).getroot()
             sources = {source.read_text(): source for source in (ROOT / 'src').rglob('*.luau')}
-            embedded = root.findall('.//ProtectedString[@name="Source"]')
+            embedded = root.findall('.//Properties/*[@name="Source"]')
             self.assertEqual(len(embedded), len(sources))
             self.assertEqual({node.text for node in embedded}, set(sources))
             scripts = root.findall('./Item[@class="ServerScriptService"]//Item[@class="Script"]')
@@ -27,6 +27,16 @@ class PlaceTests(unittest.TestCase):
             self.assertEqual(len(clients), 1)
             self.assertEqual(len(root.findall('./Item[@class="ReplicatedStorage"]//Item[@class="ModuleScript"]')), 3)
             self.assertEqual(root.attrib['version'], '4')
+
+    def test_binary_place_has_the_roblox_binary_header(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / 'CloudpopCommons.rbxl'
+            builder.build(destination)
+            data = destination.read_bytes()
+            self.assertTrue(data.startswith(b'<roblox!\x89\xff\r\n\x1a\n'))
+            self.assertGreater(len(data), 1000)
+            expected = hashlib.sha256(data).hexdigest()
+            self.assertEqual(destination.with_suffix('.rbxl.sha256').read_text().split()[0], expected)
 
     def test_startup_interface_is_packaged_without_running_any_script(self):
         with tempfile.TemporaryDirectory() as directory:

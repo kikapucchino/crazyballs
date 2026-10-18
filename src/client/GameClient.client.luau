@@ -6,9 +6,11 @@ if not startup then
 	warn("Cloudpop: the packaged StartupStatus is missing. Open the complete place file.")
 	return
 end
+startup.Text = "CLOUDPOP COMMONS · build 0.1.2\nClient started. Connecting to the workshop…"
 
 local function initialize()
 local function dependency(parent, name)
+	startup.Text = "CLOUDPOP COMMONS · build 0.1.2\nLoading " .. name .. "…"
 	local child = parent:WaitForChild(name, 15)
 	if not child then error("Timed out waiting for " .. parent:GetFullName() .. "." .. name, 0) end
 	return child
@@ -26,6 +28,7 @@ local Economy = require(dependency(Shared, "Economy"))
 local remotes = dependency(Shared, "Remotes")
 local action = dependency(remotes, "Action")
 local stateEvent = dependency(remotes, "State")
+startup.Text = "CLOUDPOP COMMONS · build 0.1.2\nBuilding your cards…"
 
 local C = {
 	ink = Color3.fromRGB(30, 71, 75), muted = Color3.fromRGB(87, 119, 119),

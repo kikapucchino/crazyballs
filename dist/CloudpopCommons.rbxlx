@@ -1,19 +1,22 @@
-<?xml version='1.0' encoding='utf-8'?>
 <roblox version="4">
-  <External>null</External>
-  <External>nil</External>
-  <Item class="ReplicatedStorage" referent="RBX1">
+  <Item class="Lighting" referent="0">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <float name="ClockTime">14</float>
+    </Properties>
+  </Item>
+  <Item class="ReplicatedStorage" referent="1">
     <Properties>
       <string name="Name">ReplicatedStorage</string>
     </Properties>
-    <Item class="Folder" referent="RBX2">
+    <Item class="Folder" referent="2">
       <Properties>
         <string name="Name">Cloudpop</string>
       </Properties>
-      <Item class="ModuleScript" referent="RBX3">
+      <Item class="ModuleScript" referent="3">
         <Properties>
           <string name="Name">Config</string>
-          <ProtectedString name="Source">-- Shared presentation and tuning. The server owns every outcome.
+          <string name="Source"><![CDATA[-- Shared presentation and tuning. The server owns every outcome.
 return {
 	Title = "Cloudpop Commons",
 	DataStoreName = "CloudpopProfiles_v1",
@@ -38,13 +41,13 @@ return {
 		{ id = "card_sea", name = "Sea glass", category = "card", price = 150, color = { 205, 240, 228 }, description = "A sea-green card frame" },
 	},
 }
-</ProtectedString>
+]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="RBX4">
+      <Item class="ModuleScript" referent="4">
         <Properties>
           <string name="Name">Economy</string>
-          <ProtectedString name="Source">local Economy = {}
+          <string name="Source"><![CDATA[local Economy = {}
 
 function Economy.defaults()
 	return {
@@ -111,7 +114,7 @@ function Economy.purchase(profile, catalog, id)
 		profile.equipped[item.category] = id
 		return true, item.name .. " equipped."
 	end
-	if profile.pesos &lt; item.price then
+	if profile.pesos < item.price then
 		return false, "Save " .. (item.price - profile.pesos) .. " more Pesos for " .. item.name .. "."
 	end
 	profile.pesos -= item.price
@@ -121,17 +124,17 @@ function Economy.purchase(profile, catalog, id)
 end
 
 return Economy
-</ProtectedString>
+]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="RBX5">
+      <Item class="ModuleScript" referent="5">
         <Properties>
           <string name="Name">GameRules</string>
-          <ProtectedString name="Source">-- Engine-independent rules: also executed by tests/rules.spec.luau.
+          <string name="Source"><![CDATA[-- Engine-independent rules: also executed by tests/rules.spec.luau.
 local Rules = {}
 
 function Rules.isIndex(value, maximum)
-	return type(value) == "number" and value == value and value % 1 == 0 and value &gt;= 1 and value &lt;= maximum
+	return type(value) == "number" and value == value and value % 1 == 0 and value >= 1 and value <= maximum
 end
 
 function Rules.shuffle(count, nextInteger)
@@ -155,7 +158,7 @@ function Rules.newCardState(pool, nextInteger)
 	end
 	-- At least one shared number makes Double Delivery possible on every pair.
 	for _, number in ipairs(secondDeck) do
-		if number ~= second[1] and #second &lt; 9 then
+		if number ~= second[1] and #second < 9 then
 			table.insert(second, number)
 		end
 	end
@@ -268,23 +271,24 @@ function Rules.settle(state, rewards)
 end
 
 return Rules
-</ProtectedString>
+]]></string>
         </Properties>
       </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="RBX6">
+  <Item class="ServerScriptService" referent="6">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Folder" referent="RBX7">
+    <Item class="Folder" referent="7">
       <Properties>
         <string name="Name">CloudpopServer</string>
       </Properties>
-      <Item class="Script" referent="RBX8">
+      <Item class="Script" referent="8">
         <Properties>
           <string name="Name">GameServer</string>
-          <ProtectedString name="Source">local Players = game:GetService("Players")
+          <token name="RunContext">0</token>
+          <string name="Source"><![CDATA[local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Cloudpop")
 local Config = require(Shared.Config)
@@ -355,7 +359,7 @@ end
 
 local function checkPatterns(player)
 	local count = Rules.claimPatterns(boards[player])
-	if count &gt; 0 then
+	if count > 0 then
 		send(player, "Row complete! +" .. count * Config.Rewards.Pattern .. " Pesos at round end.")
 	end
 end
@@ -411,7 +415,7 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 	budget.tokens = math.min(16, budget.tokens + (now - budget.at) * 8)
 	budget.at = now
 	rateLimits[player] = budget
-	if budget.tokens &lt; 1 then return end
+	if budget.tokens < 1 then return end
 	budget.tokens -= 1
 	if name == "Sync" then send(player); return end
 	if not usable(player) then send(player, "Saving is reconnecting. Please wait."); return end
@@ -478,7 +482,7 @@ local function phase(name, seconds)
 	round.phase = name
 	round.deadline = workspace:GetServerTimeNow() + seconds
 	broadcast()
-	while not closing and workspace:GetServerTimeNow() &lt; round.deadline do task.wait(0.15) end
+	while not closing and workspace:GetServerTimeNow() < round.deadline do task.wait(0.15) end
 end
 
 game:BindToClose(function()
@@ -493,7 +497,7 @@ game:BindToClose(function()
 		end)
 	end
 	local timeout = os.clock() + 25
-	while (remaining &gt; 0 or next(loading)) and os.clock() &lt; timeout do task.wait(0.1) end
+	while (remaining > 0 or next(loading)) and os.clock() < timeout do task.wait(0.1) end
 end)
 
 while not closing do
@@ -529,14 +533,13 @@ while not closing do
 	for player in pairs(profiles) do settle(player) end
 	phase("Results", Config.ResultsSeconds)
 end
-</ProtectedString>
-          <bool name="Disabled">false</bool>
+]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="RBX9">
+      <Item class="ModuleScript" referent="9">
         <Properties>
           <string name="Name">ProfileStore</string>
-          <ProtectedString name="Source">local DataStoreService = game:GetService("DataStoreService")
+          <string name="Source"><![CDATA[local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -561,7 +564,7 @@ local function retry(operation)
 			return true, result
 		end
 		warn("Cloudpop data request failed (attempt " .. attempt .. "). " .. tostring(result))
-		if attempt &lt; 3 then
+		if attempt < 3 then
 			task.wait(attempt * 2)
 		end
 	end
@@ -585,7 +588,7 @@ function Store.load(player)
 					return nil
 				end
 				if type(old.lock) == "table" and old.lock.id ~= token
-					and type(old.lock.expires) == "number" and old.lock.expires &gt; os.time() then
+					and type(old.lock.expires) == "number" and old.lock.expires > os.time() then
 					return nil
 				end
 			end
@@ -606,7 +609,7 @@ function Store.load(player)
 end
 
 function Store.writable(profile)
-	return profile and not profile.closing and (profile.practice or os.time() &lt; profile.expires - 30)
+	return profile and not profile.closing and (profile.practice or os.time() < profile.expires - 30)
 end
 
 function Store.save(profile, release)
@@ -655,13 +658,13 @@ function Store.close(profile)
 end
 
 return Store
-</ProtectedString>
+]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="RBX10">
+      <Item class="ModuleScript" referent="10">
         <Properties>
           <string name="Name">Workshop</string>
-          <ProtectedString name="Source">-- A small original lobby made entirely from Roblox primitives; no external assets.
+          <string name="Source"><![CDATA[-- A small original lobby made entirely from Roblox primitives; no external assets.
 local Workshop = {}
 
 function Workshop.build()
@@ -714,7 +717,7 @@ function Workshop.build()
 	spawn.Parent = model
 	for index = 1, 4 do
 		local x = if index % 2 == 0 then 19 else -19
-		local z = if index &lt;= 2 then 5 else -9
+		local z = if index <= 2 then 5 else -9
 		part("StampingStation", Vector3.new(8, 3, 5), Vector3.new(x, 2, z), { 255, 248, 232 })
 	end
 	local lighting = game:GetService("Lighting")
@@ -725,25 +728,30 @@ function Workshop.build()
 end
 
 return Workshop
-</ProtectedString>
+]]></string>
         </Properties>
       </Item>
     </Item>
   </Item>
-  <Item class="StarterGui" referent="RBX11">
+  <Item class="SoundService" referent="11">
+    <Properties>
+      <string name="Name">SoundService</string>
+    </Properties>
+  </Item>
+  <Item class="StarterGui" referent="12">
     <Properties>
       <string name="Name">StarterGui</string>
     </Properties>
-    <Item class="ScreenGui" referent="RBX12">
+    <Item class="ScreenGui" referent="13">
       <Properties>
         <string name="Name">CloudpopUI</string>
-        <bool name="ResetOnSpawn">false</bool>
         <int name="DisplayOrder">10</int>
+        <bool name="ResetOnSpawn">false</bool>
       </Properties>
-      <Item class="LocalScript" referent="RBX13">
+      <Item class="LocalScript" referent="14">
         <Properties>
           <string name="Name">GameClient</string>
-          <ProtectedString name="Source">-- The ScreenGui and startup message are packaged in StarterGui, so they appear
+          <string name="Source"><![CDATA[-- The ScreenGui and startup message are packaged in StarterGui, so they appear
 -- even before dependencies replicate or if initialization fails.
 local gui = script.Parent
 local startup = gui:WaitForChild("StartupStatus", 10)
@@ -751,9 +759,11 @@ if not startup then
 	warn("Cloudpop: the packaged StartupStatus is missing. Open the complete place file.")
 	return
 end
+startup.Text = "CLOUDPOP COMMONS · build 0.1.2\nClient started. Connecting to the workshop…"
 
 local function initialize()
 local function dependency(parent, name)
+	startup.Text = "CLOUDPOP COMMONS · build 0.1.2\nLoading " .. name .. "…"
 	local child = parent:WaitForChild(name, 15)
 	if not child then error("Timed out waiting for " .. parent:GetFullName() .. "." .. name, 0) end
 	return child
@@ -771,6 +781,7 @@ local Economy = require(dependency(Shared, "Economy"))
 local remotes = dependency(Shared, "Remotes")
 local action = dependency(remotes, "Action")
 local stateEvent = dependency(remotes, "State")
+startup.Text = "CLOUDPOP COMMONS · build 0.1.2\nBuilding your cards…"
 
 local C = {
 	ink = Color3.fromRGB(30, 71, 75), muted = Color3.fromRGB(87, 119, 119),
@@ -989,8 +1000,8 @@ end
 
 local function resizeCards()
 	local width = cardsFrame.AbsoluteSize.X
-	if width &lt;= 0 then return end
-	local columns = if width &lt; 350 then 1 else 2
+	if width <= 0 then return end
+	local columns = if width < 350 then 1 else 2
 	local cardWidth = (width - (columns - 1) * 12) / columns
 	local cellSize = math.floor((cardWidth - 28) / 3)
 	local cardHeight = cellSize * 3 + 62
@@ -1091,8 +1102,8 @@ render = function()
 	local phaseNames = { Waiting = "WELCOME ABOARD", Intermission = "FRESH DELIVERY", Drawing = "SHARED SKY DRAW",
 		Event = "A LITTLE CHANGE OF WIND", LastCall = "FINAL STAMPS", Results = "DELIVERY COMPLETE" }
 	phaseLabel.Text = phaseNames[s.phase] or s.phase
-	ballNumber.Text = if #s.history &gt; 0 then tostring(s.history[#s.history]) else "?"
-	latest.Text = if #s.history &gt; 0 then "Ball " .. #s.history .. " / " .. s.drawCount .. "\nEveryone's draw" else "Two free cards.\nYour next adventure."
+	ballNumber.Text = if #s.history > 0 then tostring(s.history[#s.history]) else "?"
+	latest.Text = if #s.history > 0 then "Ball " .. #s.history .. " / " .. s.drawCount .. "\nEveryone's draw" else "Two free cards.\nYour next adventure."
 	local participating = #s.cards == 2
 	if not participating then
 		instruction.Text = "Welcome! Watch the shared draw. Your two free cards arrive next round."
@@ -1187,7 +1198,7 @@ stateEvent.OnClientEvent:Connect(function(snapshot)
 		swapMode, swapSelection = false, {}
 	end
 	current = snapshot
-	if previous and snapshot.roundId == previous.roundId and #snapshot.history &gt; #previous.history then
+	if previous and snapshot.roundId == previous.roundId and #snapshot.history > #previous.history then
 		if soundOn then ping:Play() end
 		if not snapshot.settings.reducedMotion then
 			ballNumber.TextSize = 68
@@ -1237,54 +1248,43 @@ if not ok then
 		.. (string.match(tostring(problem), "[^\n]+") or "Startup error")
 	warn("Cloudpop startup failed:\n" .. tostring(problem))
 end
-</ProtectedString>
-          <bool name="Disabled">false</bool>
+]]></string>
         </Properties>
       </Item>
-      <Item class="TextLabel" referent="RBX14">
+      <Item class="TextLabel" referent="15">
         <Properties>
           <string name="Name">StartupStatus</string>
-          <string name="Text">CLOUDPOP COMMONS
-Opening your sky workshop…</string>
-          <float name="TextSize">22</float>
-          <bool name="TextWrapped">true</bool>
+          <Color3 name="BackgroundColor3">
+            <R>0.882353</R>
+            <G>0.937255</G>
+            <B>0.898039</B>
+          </Color3>
+          <int name="BorderSizePixel">0</int>
           <UDim2 name="Size">
             <XS>1</XS>
             <XO>0</XO>
             <YS>1</YS>
             <YO>0</YO>
           </UDim2>
-          <Color3 name="BackgroundColor3">
-            <R>0.882353</R>
-            <G>0.937255</G>
-            <B>0.898039</B>
-          </Color3>
+          <string name="Text">CLOUDPOP COMMONS · build 0.1.2
+Waiting for the client script to start…</string>
           <Color3 name="TextColor3">
             <R>0.117647</R>
             <G>0.278431</G>
             <B>0.294118</B>
           </Color3>
-          <int name="BorderSizePixel">0</int>
+          <float name="TextSize">22</float>
+          <bool name="TextWrapped">true</bool>
           <int name="ZIndex">20</int>
         </Properties>
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="RBX15">
+  <Item class="Workspace" referent="16">
     <Properties>
       <string name="Name">Workspace</string>
+      <bool name="NeedsPivotMigration">false</bool>
       <bool name="StreamingEnabled">false</bool>
-    </Properties>
-  </Item>
-  <Item class="Lighting" referent="RBX16">
-    <Properties>
-      <string name="Name">Lighting</string>
-      <float name="ClockTime">14</float>
-    </Properties>
-  </Item>
-  <Item class="SoundService" referent="RBX17">
-    <Properties>
-      <string name="Name">SoundService</string>
     </Properties>
   </Item>
 </roblox>

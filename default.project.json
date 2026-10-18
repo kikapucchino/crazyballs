@@ -16,7 +16,7 @@
         "StartupStatus": {
           "$className": "TextLabel",
           "$properties": {
-            "Text": "CLOUDPOP COMMONS\nOpening your sky workshop…",
+            "Text": "CLOUDPOP COMMONS · build 0.1.2\nWaiting for the client script to start…",
             "TextSize": 22,
             "TextWrapped": true,
             "Size": { "UDim2": [[1, 0], [1, 0]] },
@@ -27,6 +27,9 @@
           }
         }
       }
-    }
+    },
+    "Workspace": { "$properties": { "StreamingEnabled": false } },
+    "Lighting": { "$properties": { "ClockTime": 14 } },
+    "SoundService": {}
   }
 }

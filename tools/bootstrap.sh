@@ -17,6 +17,7 @@ if [[ ! -x "$cloudpop_tools/bin/luau" || ! -x "$cloudpop_tools/bin/luau-compile"
   printf '%s\n' "$cloudpop_revision" > "$cloudpop_tools/revision"
 fi
 cd "$cloudpop_root"
+python3 tools/install_rojo.py
 LUAU_BIN="$cloudpop_tools/bin/luau" LUAU_COMPILE_BIN="$cloudpop_tools/bin/luau-compile" python3 tools/check.py
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 tools/build_place.py

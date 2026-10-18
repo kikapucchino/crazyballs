@@ -2,6 +2,7 @@ tests/.generated/
 __pycache__/
 *.pyc
 *.rbxl
+!dist/CloudpopCommons.rbxl
 *.rbxl.lock
 *.rbxlx.lock
 .DS_Store
