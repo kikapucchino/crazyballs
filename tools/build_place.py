@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,6 +33,23 @@ def build(destination):
     return destination
 
 
+def package_zip(source):
+    source = Path(source)
+    destination = source.with_name('CloudpopCommons-Studio.zip')
+    entry = zipfile.ZipInfo(source.name, date_time=(1980, 1, 1, 0, 0, 0))
+    entry.compress_type = zipfile.ZIP_DEFLATED
+    entry.external_attr = 0o100644 << 16
+    with zipfile.ZipFile(destination, 'w') as archive:
+        archive.writestr(entry, source.read_bytes())
+    with zipfile.ZipFile(destination) as archive:
+        if archive.testzip() is not None or archive.read(source.name) != source.read_bytes():
+            raise RuntimeError('Studio ZIP validation failed')
+    digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+    destination.with_suffix('.zip.sha256').write_text(f'{digest}  {destination.name}\n')
+    print(f'Packaged and verified {destination}', flush=True)
+    return destination
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path)
@@ -42,3 +60,4 @@ if __name__ == '__main__':
         # Binary is the recommended download; refresh the older XML link too.
         build(ROOT / 'dist/CloudpopCommons.rbxl')
         build(ROOT / 'dist/CloudpopCommons.rbxlx')
+        package_zip(ROOT / 'dist/CloudpopCommons.rbxl')

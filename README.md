@@ -4,6 +4,8 @@ A playable Roblox prototype about shared sky draws, satisfying stamps, and a coz
 
 ## First step: play in Roblox Studio
 
+**[Download the Studio ZIP](dist/CloudpopCommons-Studio.zip)** using GitHub's **Download raw file** button on that page. Extract it to get `CloudpopCommons.rbxl`. Alternatively, use the green **Code → Download ZIP** button on the repository home page and find the place inside `dist/`.
+
 1. Download **[dist/CloudpopCommons.rbxl](dist/CloudpopCommons.rbxl)** to a Windows or macOS computer with Roblox Studio.
 2. In Studio, choose **File → Open from File** and open it.
 3. Press **Play (F5)**. The workshop and interface are created when the server starts.
@@ -53,6 +55,7 @@ tools/build_place.py                  Standard Rojo place builder wrapper
 tools/install_rojo.py                 Verified, pinned Rojo installer for cloud Linux
 tests/                                Rules, persistence, server, and packaging checks
 dist/CloudpopCommons.rbxl              Open directly in Roblox Studio
+dist/CloudpopCommons-Studio.zip        ZIP containing the same Studio place
 ```
 
 Exact Explorer locations and every test step are in [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md). The complete Luau code lives in the files above; no code needs to be copied out of chat.
@@ -80,4 +83,4 @@ LUAU_BIN=/path/to/luau LUAU_COMPILE_BIN=/path/to/luau-compile python3 tools/chec
 
 The tests execute the real rule modules, the real persistence module against a mock DataStore, and the actual server controller and client initializer against simulated Roblox services. They test client startup and missing dependencies, malformed/stale requests, duplicate rewards, card distribution, swaps, profile conflicts, failed saves, late joins, and leaving. They do **not** substitute for Roblox Studio's renderer, networking, or live DataStore tests.
 
-Both `.rbxl` and `.rbxlx` embed all source and have SHA-256 files beside them. Rojo handles script and instance serialization. Open the latest rebuilt output after source changes. `rojo serve` with `default.project.json` provides an optional live-sync workflow. You need Rojo to build from source; you do not need it to open and play the packaged place.
+Both `.rbxl` and `.rbxlx` embed all source and have SHA-256 files beside them. The build also refreshes and verifies `CloudpopCommons-Studio.zip`, which contains the binary place. Rojo handles script and instance serialization. Open the latest rebuilt output after source changes. `rojo serve` with `default.project.json` provides an optional live-sync workflow. You need Rojo to build from source; you do not need it to open and play the packaged place.
