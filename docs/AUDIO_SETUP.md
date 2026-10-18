@@ -52,15 +52,18 @@ Edit `Config.Audio.Music` and `Config.Audio.SFX` in `src/shared/Config.luau`:
 | Slot | Brief |
 | --- | --- |
 | `Music.lobby` | Cohesive looping lobby/main-round soundtrack |
+| `Music.bonusIntro` | Nonlooping introduction before the active bonus track |
 | `Music.coin` | Bright, rhythmic flip-and-reveal theme |
 | `Music.duck` | Playful plucked shuffle/choice theme |
 | `Music.pacinki` | Cascading mallet/drop theme |
 | `Music.crazy` | Energetic wheel/choice theme |
 | `SFX.draw`, `mark`, `qualify`, `reveal`, `result` | Short original/licensed feedback cues |
 
-Use actual permitted `rbxassetid://` IDs. Music loops automatically. If a bonus music slot is empty, a supplied lobby track continues. Music transitions use one Sound with sequential fades; there are no unrelated simultaneous tracks. During audible voice, music is reduced to 22% of the selected volume, then restored. Four reusable Sounds bound overlapping effects. Voice, music and effects each have independent volume and mute in Settings.
+Use actual permitted `rbxassetid://` IDs. Music loops except for `bonusIntro`. Missing bonus/intro assets stay silent; the lobby track is not substituted. Music transitions use one Sound with sequential fades; there are no unrelated simultaneous tracks. During audible voice, music is reduced to 22% of the selected volume, then restored. Four reusable Sounds bound overlapping effects. Voice, music and effects each have independent volume and mute in Settings.
 
-Bonus-name/bonus-track hooks await actual shared bonus starts. Individual qualification currently produces a private visual notice and optional qualification effect; it does not start a shared bonus soundtrack or voice announcement.
+Scene music routing uses the intro slot first, then the corresponding bonus track, returning to lobby only after the queue is clear. Production bonus starts and bonus-name voice integration remain unfinished. Individual qualification currently produces a private visual notice and optional qualification effect; it does not start a shared bonus soundtrack or voice announcement.
+
+The requested references are preserved in `Config.Audio.References`: lobby/main `https://youtu.be/8bTuNaVfNTE`, bonus intro `https://youtu.be/dzdTQrzWS_M`. These are not playable Roblox assets. No download, reupload, replacement track or rights verification has occurred. Obtain permission and supply permitted Roblox audio IDs. `BonusIntroSeconds` defaults to three seconds and should match the approved intro duration.
 
 ## 5. Test before calling audio finished
 

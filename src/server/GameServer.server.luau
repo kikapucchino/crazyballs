@@ -3,6 +3,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Cloudpop")
 local Config = require(Shared.Config)
 local Rules = require(Shared.GameRules)
+local Patterns = require(Shared.PatternRules)
+local activePatterns = Patterns.expand(Config.Main.Patterns,5)
+local patternDescription = Patterns.description(Config.Main.Patterns)
 local Manifest = require(Shared.AudioManifest)
 local Economy = require(Shared.Economy)
 local Profiles = require(script.Parent.ProfileStore)
@@ -12,6 +15,14 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local ChestRules = require(Shared.ChestRules)
 local Pass = require(script.Parent.PassService).new(Marketplace, Config.AutoMarkPass, os.clock)
+local PremiumPasses={}
+for _,item in ipairs(Config.Catalog) do
+	if item.payment=="Robux" then PremiumPasses[item.id]=require(script.Parent.PassService).new(Marketplace,{Id=item.passId,IntendedPrice=item.intendedPrice},os.clock) end
+end
+local function checkPasses(player)
+	Pass:check(player)
+	for _,service in pairs(PremiumPasses) do service:check(player) end
+end
 local Pets = require(script.Parent.PetService).new(require(Shared.PetBuilder), workspace)
 local Feed = require(script.Parent.ResultFeed).new(os.time)
 local Global = require(script.Parent.GlobalPayouts).new(function(record) Feed:record(record) end)
@@ -30,7 +41,11 @@ stateEvent.Parent = remotes
 require(script.Parent.Workshop).build()
 local rng = Random.new()
 local function nextInteger(low, high) return rng:NextInteger(low, high) end
+local BonusQueue = require(script.Parent.BonusQueue).new(function() return workspace:GetServerTimeNow() end,nextInteger,function(event) Feed:completeBonus(event) end,Config.Audio.BonusIntroSeconds)
+-- Enqueue only from a future configured settlement controller. No production bonus is
+-- scheduled until prize distributions, deductions and interrupt/after-draw timing exist.
 local profiles, boards, summaries, rateLimits, loading, characterConnections = {}, {}, {}, {}, {}, {}
+local startingCompleted = {}
 local round = { id = 0, phase = "Waiting", deadline = 0, history = {}, drawn = {}, announcement = nil, announcementId = 0 }
 local closing = false
 
@@ -55,28 +70,43 @@ local function enqueueCommitted(profile, snapshot)
 end
 Profiles.onSaved = enqueueCommitted
 
+local function deal(player)
+	boards[player]=Rules.newCardState(Config,nextInteger)
+	startingCompleted[player]={}
+	for cardIndex,card in ipairs(boards[player].cards) do
+		local marked={}
+		for index,number in ipairs(card) do marked[index]=boards[player].premarks[cardIndex][number]==true end
+		startingCompleted[player][cardIndex]=Patterns.evaluate(activePatterns,marked)
+	end
+end
 local function send(player, notice)
 	local profile = profiles[player]
 	if not profile or player.Parent ~= Players then return end
 	local board = boards[player]
+	local presentation=BonusQueue:view(player.UserId)
 	local cardViews = {}
 	if board then
 		for cardIndex, card in ipairs(board.cards) do
-			local cells = {}
-			for _, number in ipairs(card) do
+			local cells,marked = {},{}
+			for index, number in ipairs(card) do
+				marked[index]=board.marks[cardIndex][number]==true
 				table.insert(cells, { number = number, marked = board.marks[cardIndex][number] == true,
-					available = round.drawn[number] == true })
+					available = round.drawn[number] == true, premarked = board.premarks[cardIndex][number]==true, multiplier=board.tiles[cardIndex][index] })
 			end
-			table.insert(cardViews, { cells = cells, multiplier = board.multipliers[cardIndex] })
+			local completed,highlight=Patterns.evaluate(activePatterns,marked)
+			table.insert(cardViews, { cells = cells, multiplier = board.multipliers[cardIndex],completed=completed,highlight=highlight,
+				startingCompleted=startingCompleted[player] and startingCompleted[player][cardIndex] or {} })
 		end
 	end
+	local premiumViews={}
+	for id,service in pairs(PremiumPasses) do premiumViews[id]=service:view(player) end
 	local bonusViews = {}
 	for _, definition in ipairs(Config.Bonuses) do
 		local card = board and board.bonuses[definition.id]
 		local cells = {}
 		if card then
 			for _, number in ipairs(card.numbers) do
-				table.insert(cells, { number = number, marked = round.drawn[number] == true })
+				table.insert(cells, { number = number, marked = card.marks[number]==true, premarked=card.premarks[number]==true, available=round.drawn[number]==true })
 			end
 		end
 		table.insert(bonusViews, { id = definition.id, name = definition.name, cells = cells,
@@ -85,14 +115,14 @@ local function send(player, notice)
 	end
 	-- Future draws and other players' profiles never leave the server.
 	stateEvent:FireClient(player, {
-		roundId = round.id, phase = round.phase, deadline = round.deadline,
+		roundId = round.id, phase = round.phase, deadline = round.deadline, patternDescription=patternDescription,
 		history = round.history, drawCount = Config.DrawCount, cards = cardViews,
-		announcement = round.announcement, activeBonus = nil, bonuses = bonusViews, mainPending = not Config.Main.RewardsConfirmed, bonusPending = true,
+		announcement = round.announcement, bonusPresentation=presentation, activeBonus = presentation and presentation.kind or nil, bonuses = bonusViews, mainPending = not Config.Main.RewardsConfirmed, bonusPending = true,
 		participated = if board then board.participated else false,
 		pesos = profile.data.pesos, rounds = profile.data.rounds,
 		owned = profile.data.owned, equipped = profile.data.equipped, settings = profile.data.settings,
 		saveStatus = profile.saveStatus, practice = profile.practice,
-		pass = Pass:view(player), chest = ChestRules.status(profile.data.chest, Config.Chest, os.time()),
+		pass = Pass:view(player), premium=premiumViews, chest = ChestRules.status(profile.data.chest, Config.Chest, os.time()),
 		topPayout = Global:view(), recentBonuses = Feed.recent, systemMessages = Feed.messages,
 		players = #Players:GetPlayers(), summary = summaries[player], notice = notice,
 	})
@@ -107,21 +137,31 @@ local function settle(player)
 	if not board or not profile or not usable(player) then return end
 	-- Opening cards and leaving before the first draw is not a played round.
 	if #round.history == 0 then return end
-	local summary = Rules.settle(board, Config.Rewards)
-	if not summary then return end
-	local credited = math.min(summary.total, 1000000000-profile.data.pesos)
-	profile.data.pesos += credited
-	summary.total = credited
-	if credited>0 and not profile.practice and not RunService:IsStudio() then
-		-- The credit and its transaction enter the SAME durable profile write.
-		for index=#profile.data.payoutOutbox,1,-1 do
-			local record=profile.data.payoutOutbox[index]
-			if type(record.at)~="number" or record.at<=os.time()-86400 then table.remove(profile.data.payoutOutbox,index) end
-		end
-		table.insert(profile.data.payoutOutbox,{id=HttpService:GenerateGUID(false),userId=player.UserId,
-			playerName=player.Name,source="Round participation",multiplier="1",pesos=credited,at=os.time()})
+	if board.settled then return end
+	local completed={}
+	for cardIndex,card in ipairs(board.cards) do
+		local marked={};for index,number in ipairs(card) do marked[index]=board.marks[cardIndex][number]==true end
+		completed[cardIndex]=Patterns.evaluate(activePatterns,marked)
 	end
-	if board.participated then profile.data.rounds += 1 end
+	local awards,held=Rules.lineAwards(board,completed,startingCompleted[player] or {},Config.Main.LineBasePesos,Config.Main.StartingPatternPolicy,activePatterns,Config.Main.MultiplierCells.Stacking)
+	local summary=Rules.settle(board,Config.Rewards)
+	if not summary then return end
+	summary.lines,summary.heldStartingLines=0,held
+	if Config.Main.RewardsConfirmed then
+		for _,award in ipairs(awards) do
+			local credited=math.min(award.pesos,1000000000-profile.data.pesos)
+			profile.data.pesos+=credited;summary.total+=credited;summary.lines+=award.lines
+			if credited>0 and not profile.practice and not RunService:IsStudio() then
+				for index=#profile.data.payoutOutbox,1,-1 do
+					local record=profile.data.payoutOutbox[index]
+					if type(record.at)~="number" or record.at<=os.time()-86400 then table.remove(profile.data.payoutOutbox,index) end
+				end
+				table.insert(profile.data.payoutOutbox,{id=HttpService:GenerateGUID(false),userId=player.UserId,
+					playerName=player.Name,source="Main card "..award.cardIndex.." / "..award.patternId,multiplier=tostring(award.multiplier),pesos=credited,at=os.time()})
+			end
+		end
+	end
+	if board.participated or summary.total>0 then profile.data.rounds+=1 end
 	changed(profile)
 	summaries[player] = summary
 end
@@ -142,16 +182,17 @@ local function addPlayer(player)
 	profiles[player] = profile
 	if not profile.practice then enqueueCommitted(profile, profile.data) end
 	Pets:sync(player, profile.data.equipped.pet)
-	task.spawn(function() Pass:check(player); send(player) end)
+	task.spawn(function() checkPasses(player); send(player) end)
 	characterConnections[player] = player.CharacterAdded:Connect(function() task.spawn(Holder.give, player) end)
 	task.spawn(Holder.give, player)
 	if round.phase == "Intermission" then
-		boards[player] = Rules.newCardState(Config, nextInteger)
+		deal(player)
 	end
 	broadcast()
 end
 
 local function removePlayer(player)
+	BonusQueue:leave(player.UserId)
 	local profile = profiles[player]
 	if profile then
 		-- Earned progress is settled even if a player leaves before the results screen.
@@ -160,8 +201,9 @@ local function removePlayer(player)
 	end
 	Pets:remove(player)
 	Pass:forget(player)
+	for _,service in pairs(PremiumPasses) do service:forget(player) end
 	if characterConnections[player] then characterConnections[player]:Disconnect(); characterConnections[player] = nil end
-	profiles[player], boards[player], summaries[player], rateLimits[player] = nil, nil, nil, nil
+	profiles[player], boards[player], summaries[player], rateLimits[player],startingCompleted[player] = nil, nil, nil, nil,nil
 	broadcast()
 end
 
@@ -178,8 +220,16 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 	if not usable(player) then send(player, "Saving is reconnecting. Please wait."); return end
 	local profile, board = profiles[player], boards[player]
 	local notice
-	if name == "RefreshPass" then
-		task.spawn(function() Pass:check(player);send(player) end)
+	if name=="BonusChoice" then
+		BonusQueue:choose(player.UserId,a,b)
+	elseif name=="PremiumEquip" then
+		local service=type(a)=="string" and PremiumPasses[a]
+		local item=service and Economy.find(Config.Catalog,a)
+		if not service or not service:owns(player) then send(player,"This cosmetic requires verified pass ownership.");return end
+		profile.data.owned[a]=true;profile.data.equipped[item.category]=a;changed(profile)
+		notice=item.name.." equipped."
+	elseif name == "RefreshPass" then
+		task.spawn(function() checkPasses(player);send(player) end)
 	elseif name == "UnequipPet" then
 		Economy.unequipPet(profile.data);Pets:sync(player,nil);changed(profile)
 		notice = "Pet unequipped."
@@ -205,6 +255,8 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 	elseif board and requestedRound == round.id and not board.settled then
 		if name == "Participate" then
 			board.participated = true
+		elseif name == "MarkBonus" and (round.phase == "Drawing" or round.phase == "LastCall") then
+			Rules.markBonus(board,round.drawn,a,b)
 		elseif name == "Mark" and (round.phase == "Drawing" or round.phase == "LastCall") then
 			Rules.mark(board, round.drawn, a, b)
 		end
@@ -212,9 +264,24 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 	send(player, notice)
 end)
 
+task.spawn(function()
+	local previous=""
+	while not closing do
+		BonusQueue:advance()
+		local entry=BonusQueue.active
+		local key=if entry then entry.event.id..":"..tostring(entry.phase) else ""
+		if key~=previous then previous=key;broadcast() end
+		task.wait(0.2)
+	end
+end)
+
 Marketplace.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
-	if passId~=Config.AutoMarkPass.Id or not purchased or not profiles[player] then return end
-	task.spawn(function() Pass:check(player,true);send(player) end)
+	if not purchased or not profiles[player] then return end
+	task.spawn(function()
+		if passId==Config.AutoMarkPass.Id then Pass:check(player,true) end
+		for _,service in pairs(PremiumPasses) do if service:view(player).id==passId then service:check(player,true) end end
+		send(player)
+	end)
 end)
 
 task.spawn(function()
@@ -298,9 +365,9 @@ while not closing do
 	end
 	round.id += 1
 	round.history, round.drawn = {}, {}
-	boards, summaries = {}, {}
+	boards, summaries,startingCompleted = {}, {},{}
 	for player in pairs(profiles) do
-		if usable(player) then boards[player] = Rules.newCardState(Config, nextInteger) end
+		if usable(player) then deal(player) end
 	end
 	phase("Assignment", 0)
 	phase("Intermission", Config.IntermissionSeconds, "upcoming")

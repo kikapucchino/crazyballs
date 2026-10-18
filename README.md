@@ -1,61 +1,55 @@
-# Cloudpop Commons · build 0.4.0
+# Cloudpop Commons · build 0.5.0
 
-A Roblox multiplayer party-game work in progress with a walkable three-room observatory, six card panels per player, shared ball draws, and a stage presenter. Main patterns and bonus payouts still await the creator's remaining rules; this is not a finished release.
+A Roblox multiplayer card party game with shared ball draws, a blue three-room observatory, collectible cosmetics and pets. The main-card game is playable solo or with friends. Bonus payout rules are still incomplete; this is a development build, not a finished public release.
 
 ## Download and play
 
-1. Open **[CloudpopCommons-Studio.zip](dist/CloudpopCommons-Studio.zip)** → GitHub's **Download raw file** → extract `CloudpopCommons.rbxl`.
-2. If that fails, use the repository home page → **Code → Download ZIP**, extract it, and find `dist/CloudpopCommons.rbxl`.
+1. Open **[CloudpopCommons-Studio.zip](dist/CloudpopCommons-Studio.zip)** → **Download raw file** → extract `CloudpopCommons.rbxl`.
+2. If that fails, open the repository home page → **Code → Download ZIP**, then find `dist/CloudpopCommons.rbxl` inside.
 3. Roblox Studio → **File → Open from File** → open the new `.rbxl` → **Play (F5)**.
-4. Explore the draw hall, social lounge/café and viewing room. Equip **Cards** or use its button. On desktop the cards start open; touch devices start collapsed to leave movement controls available.
-5. Two free 5×5 main cards appear before the shared **15-second countdown** ends. Each has a fixed **1×–20× multiplier**. Tap called numbers to mark them. **•** means called/unmarked; **✓** means marked.
-6. Follow the shared draw through **20 unique numbers from 1–60**. Coin flip, Duck hunt, Pačinki and Go CRazy appear in a **2×2 group beside the main cards**. Narrow screens scroll without shrinking the number buttons.
+4. Use **Cards** or equip the card-holder Tool. Desktop cards start open; touch starts collapsed. Tap matching called numbers on main and bonus cards. The tray scrolls without shrinking its 44-pixel buttons.
 
-The packaged place needs no plugin, API key or manual script copying. Scenery is created when Play starts. Studio practice is temporary and requires no API-service permission. Replace old downloaded copies to see this update.
+No plugin, API key or script copying is required. Furniture is generated when Play starts. Studio practice resets on Stop and does not need API-service permissions. Replace older downloads to see this version.
 
-[Studio testing and Explorer hierarchy](docs/STUDIO_GUIDE.md) · [Remaining rules](docs/IMPLEMENTATION_STATUS.md) · [Supplying licensed human voice/music](docs/AUDIO_SETUP.md) · [Policy review](docs/POLICY_REVIEW.md)
+[Studio tests and Explorer hierarchy](docs/STUDIO_GUIDE.md) · [Remaining rules](docs/IMPLEMENTATION_STATUS.md) · [Passes, pets and saving](docs/FEATURE_SETUP.md) · [Audio setup](docs/AUDIO_SETUP.md) · [Policy assessment](docs/POLICY_REVIEW.md)
 
-## New in 0.4.0
+## Main-card rules
 
-- Server-verified Auto Mark pass with official purchase flow, actual price/mismatch display and saved toggle. Set its real ID before sales are available.
-- Three original 500-Pesos pets with 3D previews, collect/equip/unequip, saved ownership and visible smooth following.
-- Permanent free-chest interface and tested claim/save bookkeeping. Claims and probability effects remain gated by the unanswered reset/reward/boost rules.
-- Supported system chat, grouped last-four-bonus history and a persistent cross-server rolling 24-hour highest-payout panel. Only committed positive payouts enter the global record; Studio transactions are excluded.
+- Two free 5×5 numbered cards per player, plus four bonus-card entries. Numbers are distinct within each card; the center is numbered.
+- Each main card starts with **8–12 random marks**. These stay fixed; their numbers can still emerge from the machine.
+- Each main card has **one or two random multiplier cells**, equally likely. Each cell independently receives **10×, 20× or 50×**, with equal chances. Positions are uniformly selected without replacement.
+- **Every distinct completed row, column and either diagonal pays 15 Pesos**, including lines completed by starting marks. Rewards settle once at round results, or on departure after the first draw. No flat participation/end-of-round payment remains.
+- Cell multipliers multiply together **on their line** and replace the old card-wide multiplier. An ordinary line pays 15; a 10× line pays 150; a line with 20× and 50× pays 15,000. A multiplier can belong to several different winning lines. Full house has no separate extra reward.
+- The server draws **20 unique numbers from 1–60**, after a shared 15-second intermission. Earlier calls remain markable through Last Call. Purchases never change the shared deck or these dealing distributions.
+- **◇** = starting mark, **•** = called/unmarked, **✓** = marked. Completed lines receive a cyan outline.
 
-See **[feature configuration and limitations](docs/FEATURE_SETUP.md)** for exact pass setup, chest proposal, persistence design, policy implications and live testing steps.
+Small bonus cards retain their 3/4/4-number layouts. They receive **0–8 starting marks total**, never enough to complete any one card; at least one space remains unmarked per card. Called numbers require manual marking, or verified Auto Mark. Go CRazy's qualification count remains unconfigured, so its fourth entry cannot qualify yet.
 
-## Included gameplay and presentation
+## New presentation and shop
 
-- Fully enclosed draw hall, social lounge and separate viewing room, with floors, ceilings, glazed exterior walls, open interior doorways, trim, lights, furniture, seating and exterior island/sea views.
-- Presenter stage and original character, central ball machine, main draw screen, second live viewing screen and a furnished **non-alcoholic Sky Café**.
-- Normal Roblox avatars, camera, movement, chat and backpack controls. A replicated card-holder Tool survives respawn without duplicates.
-- Bottom-center horizontal main cards with an adjacent 2×2 bonus group. Mobile uses navigation/scrolling and 44-pixel number targets; movement areas are reserved.
-- Exactly two distinct-number main cards plus one entry for each of the four bonuses. Go CRazy's numbers remain pending its unconfirmed qualification count.
-- Server-assigned main-card multipliers fixed at deal time: **each integer 1–20 has a 5% chance**. Relative weights are editable in `Config.Main.MultiplierWeights`; purchases/behavior do not alter them.
-- Free manual marking plus the newly requested optional permanent Auto Mark pass integration (intended 60 Robux). The real pass ID remains unconfigured; owners are server-verified and actual platform pricing is displayed.
-- One server deadline for the 15-second countdown; drawing starts automatically at zero with the shared start cue, followed by the first ball after that cue's 1.5-second slot. Twenty balls follow at four-second intervals.
-- Queued presenter announcements/subtitles, an explicit recording manifest for all 60 numbers and transition/bonus names, separate music/voice/effects volumes and mute controls, preload handling and voice ducking.
-- Existing server-authoritative cosmetic purchases, participation reward, session-locked saving, retries, autosave, late joins and shutdown handling remain in place.
+The enclosed lobby is approximately 89% larger than the previous layout: a draw hall, social lounge with non-alcoholic café, and separate viewing room. It has 64 native seats, larger group tables, plants, original wall art, shelves, cushions, rugs, window trim, lighting and two synchronized draw screens. Normal Roblox movement, camera and controls remain available.
 
-**No recordings are included.** Every voice/music/effect asset slot is empty. Subtitles work; the distributed build is silent. No synthetic speech or recognizable-person imitation is used. The music engine loops a supplied lobby track, switches a single music channel for bonuses, and ducks it while a loaded human recording plays.
+A separate lobby **Robux boutique** offers previews and official purchase hooks for three guaranteed legendary cosmetic passes and the intended 60-Robux Auto Mark pass. All pass IDs ship as `0`; sales remain unavailable until actual IDs are configured. Actual platform prices are queried, not fabricated. Auto Mark marks called matches on both card types and may prevent missed marks; it is a convenience upgrade, not a cosmetic.
 
-## What remains unfinished
+Four original cinematic modules and a server queue are implemented and tested with fixture outcomes: coin flip, covered Duck selection, peg-board drop and a 64-sector wheel with three pointers. They are **not triggered in production yet**: bonus values/probabilities, signed settlement, Go CRazy rules and scheduling remain unresolved. No fixture values are used as real prizes.
 
-The creator confirmed **two main cards + four bonus cards = six cards**. Winning patterns, free-center treatment and base pattern rewards remain unanswered. All 25 cells currently receive numbers for dealing/marking; no free-center privilege or pattern payout is applied. A tested reward helper multiplies an eligible main-card base reward once by that card's multiplier, but is not called until pattern/base rules exist. It never multiplies participation or bonus rewards.
+The requested **99-Robux offer for three random bonuses over three consecutive rounds is unavailable**. Paying for random spendable rewards raises a separate gambling/paid-random policy concern; free base cards do not resolve it. See the policy assessment.
 
-Coin/Duck/Pačinki qualification counts (3/4/4), signed bounds and names are preserved. Their presentation/selection games, queue execution and payouts remain inactive because distributions, negative-balance rules and timing/retriggering are unconfirmed. Go CRazy's 64 segments and three pointers are recorded, but its qualification count, sector values/probabilities and pointer-result rules are still missing. Existing bonus calculation helpers remain tested; they are not finished playable bonuses.
+## Saving, progression and missing assets
 
-The current build pays only the existing 20-Pesos participation reward. Main multipliers do not change it. Main marking or intentionally opening/equipping cards establishes participation; joining and leaving before the first ball pays nothing. Guaranteed cosmetics retain their displayed prices. There are no wagers, paid entry, paid chance boosts, transfers or cash-out. Auto Mark uses the official Robux prompt only after a real pass ID is supplied.
+Pesos buy clearly priced guaranteed marker/card skins and three original 500-Pesos pets. Session-locked profiles save balances, cosmetics, pets and settings with retries/autosave. Positive line payouts enter the global 24-hour records only after their profile save succeeds; Studio payouts are excluded. The current balance cap is 1,000,000,000 Pesos; only the amount actually credited is recorded.
 
-The referenced layout screenshot was unavailable, so the implementation follows the written layout. Actual Studio visual/touch/multiplayer tests, licensed audio and resolution of the previously documented gambling-policy concerns are still required.
+The permanent free-chest interface and bookkeeping exist, but claims/boosts remain disabled pending reset, strength, cap, stacking and reward rules. Recent bonus history remains empty until real bonus settlement is configured.
 
-## Build and checks
+**The package is silent.** It includes subtitles and named slots for human voice, lobby music, a bonus intro and four distinct soundtracks, but no licensed audio IDs. YouTube references are retained as references only; no recordings were downloaded, substituted or uploaded. Missing tracks stay silent. The audio controller supports sequential fades, narration ducking and separate saved volume/mute controls.
+
+## Build and validation
 
 ```sh
 bash tools/bootstrap.sh
 ```
 
-This installs pinned official Luau and Rojo tooling with verification, runs tests and builds the Studio artifacts. With tools already installed:
+With the pinned official Luau/Rojo tools already installed:
 
 ```sh
 python3 tools/check.py
@@ -63,6 +57,6 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 python3 tools/build_place.py
 ```
 
-**99 checks pass: 94 Luau checks and 5 packaging tests.** They cover pass ownership, pet purchases, chest duplicates, durable payout publication, cross-server notifications, ties/expiry, truthful system messages and the earlier gameplay. They execute actual modules/controllers with mock Roblox services, sample thousands of decks/cards, verify fixed multipliers/manual marks/shared deadlines, test audio queueing/ducking and save failure cases, and check enclosure geometry plus a collision-clear route into each room. Geometry and UI-coordinate tests do not replace Studio rendering, real avatar navigation, network latency, touch controls or asset-permission testing.
+**119 checks passed: 114 Luau checks and five packaging tests.** Automated checks execute the actual Luau modules/controllers using mock Roblox services, including server-authoritative marking/rewards, saving failures, queue choices/timeouts, all four cinematic states, audio transitions, room routes and mobile geometry. Python tests verify source embedding, place headers, checksums and ZIP contents. **These do not constitute Roblox Studio, real Marketplace, rendered mobile or live cross-server testing.** Follow the Studio guide before public release.
 
-`dist/` contains `.rbxl`, `.rbxlx`, a ZIP containing the binary place, and SHA-256 sidecars. Optional Rojo live sync uses `default.project.json`.
+`dist/` includes the binary `.rbxl`, XML `.rbxlx`, a ZIP containing the binary place, and SHA-256 checksums. GitHub publication is not Roblox publication or moderation approval. No title/trademark availability is claimed.

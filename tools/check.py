@@ -40,7 +40,7 @@ def main():
         bindings = '\n'.join(f'local {name} = environment.{name}' for name in globals_)
         (generated / 'ClientHarness.luau').write_text(
             'return function(environment)\n' + bindings + '\n' + client_source + '\nend\n')
-        for module in ('AudioController', 'WorldEffects', 'CardPanel', 'FeaturePanels', 'PetEffects'):
+        for module in ('AudioController', 'WorldEffects', 'CardPanel', 'FeaturePanels', 'PetEffects', 'BonusPresentation', 'PremiumShop'):
             source = (ROOT / f'src/client/{module}.luau').read_text()
             (generated / f'{module}Harness.luau').write_text('return function(environment)\n' + bindings + '\n' + source + '\nend\n')
         for module, folder in (('CardHolder','server'),('PetService','server'),('PetBuilder','shared'),('GlobalPayouts','server')):

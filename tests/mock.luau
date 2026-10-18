@@ -67,7 +67,7 @@ function Mock.globals()
 		rawset(self, key, group)
 		return group
 	end })
-	return { os=os, CFrame={new=tuple,lookAt=tuple,Angles=tuple}, Enum = enum, Vector3 = { new = vector }, Vector2 = { new = vector }, Color3 = { fromRGB = tuple },
+	return { ColorSequence={new=tuple}, os=os, CFrame={new=tuple,lookAt=tuple,Angles=tuple}, Enum = enum, Vector3 = { new = vector }, Vector2 = { new = vector }, Color3 = { fromRGB = tuple },
 		UDim = { new = tuple }, UDim2 = { new = tuple, fromOffset = tuple, fromScale = tuple }, TweenInfo = { new = tuple } }
 end
 return Mock

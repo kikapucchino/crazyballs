@@ -57,7 +57,7 @@ function Economy.normalize(raw, catalog)
 	end
 	if type(raw.payoutOutbox)=="table" then
 		for _,entry in ipairs(raw.payoutOutbox) do
-			if #profile.payoutOutbox>=2048 then break end
+			if #profile.payoutOutbox>=20000 then break end
 			if type(entry)=="table" and type(entry.id)=="string" and #entry.id<=39
 				and type(entry.playerName)=="string" and #entry.playerName<=30
 				and type(entry.source)=="string" and #entry.source<=60
@@ -95,6 +95,7 @@ function Economy.purchase(profile, catalog, id)
 	if not item then
 		return false, "Unknown item."
 	end
+	if item.payment=="Robux" then return false,"Equip this item through the Robux boutique after ownership is verified." end
 	if profile.owned[id] then
 		profile.equipped[item.category] = id
 		return true, item.name .. " equipped."

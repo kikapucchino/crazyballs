@@ -9,6 +9,7 @@ local Config = require("../src/shared/Config")
 
 Config.ResultsSeconds = 1
 Config.AutoMarkPass.Id=123
+Config.Catalog[2].passId=456
 math.randomseed(118)
 
 local passed = 0
@@ -61,7 +62,7 @@ local function signal()
 end
 
 local snapshots, playersList, savedProfiles = {}, {}, {}
-local shared = { Config = "Config", GameRules = "Rules", Economy = "Economy", AudioManifest = "Manifest", ChestRules="ChestRules",PetBuilder="PetBuilder" }
+local shared = { Config = "Config", GameRules = "Rules", Economy = "Economy", AudioManifest = "Manifest", PatternRules="PatternRules",ChestRules="ChestRules",PetBuilder="PetBuilder" }
 local players = { PlayerAdded = signal(), PlayerRemoving = signal() }
 function players:GetPlayers() return table.clone(playersList) end
 local function player(id)
@@ -84,6 +85,8 @@ function profileStore.writable(profile) return profile and not profile.closing e
 function profileStore.save() return true end
 function profileStore.close(profile) profile.closing = true end
 local modules = { Manifest = require("../src/shared/AudioManifest"), Config = Config, Rules = Rules, Economy = Economy, ProfileStore = profileStore, CardHolder = { give = function() end } }
+modules.PatternRules=require("../src/shared/PatternRules")
+modules.BonusQueue=require("../src/server/BonusQueue")
 modules.ChestRules=require("../src/shared/ChestRules")
 modules.PassService=require("../src/server/PassService")
 modules.PetBuilder={}
@@ -114,7 +117,7 @@ taskMock.spawn(function()
 	runServer(gameMock, workspaceMock, taskMock, instance,
 		{ new = function() return { NextInteger = function(_, low, high) return math.random(low, high) end } end },
 		function(name) return assert(modules[name], name) end,
-		{ Parent = { ProfileStore = "ProfileStore", Workshop = "Workshop", CardHolder = "CardHolder",PassService="PassService",PetService="PetService",ResultFeed="ResultFeed",GlobalPayouts="GlobalPayouts" } }, { clock = function() return scheduler.now end,time=function() return 1800000000+math.floor(scheduler.now) end })
+		{ Parent = { ProfileStore = "ProfileStore", Workshop = "Workshop", CardHolder = "CardHolder",PassService="PassService",PetService="PetService",ResultFeed="ResultFeed",GlobalPayouts="GlobalPayouts",BonusQueue="BonusQueue" } }, { clock = function() return scheduler.now end,time=function() return 1800000000+math.floor(scheduler.now) end })
 end)
 local function request(target, name, a, b, c, roundId)
 	shared.Remotes.Action.OnServerEvent:Fire(target, name, a, b, c, roundId or snapshots[target].roundId)
@@ -129,13 +132,15 @@ advance(1.1)
 check(workspaceMock.CloudpopWorkshop and workspaceMock.CloudpopWorkshop.WelcomeMat
 	and shared.Remotes and shared.Remotes.Action and shared.Remotes.State,
 	"real workshop initialization completes and the server publishes both remotes")
-check(#snapshots[ada].cards == 2 and #snapshots[ada].cards[1].cells == 25 and snapshots[ada].mainPending, "two 5x5 cards deal before drawing while unconfirmed main rewards stay disabled")
+check(#snapshots[ada].cards == 2 and #snapshots[ada].cards[1].cells == 25 and not snapshots[ada].mainPending, "two 5x5 cards and confirmed line rules are published before drawing")
 check(snapshots[ada].deadline == snapshots[ben].deadline and snapshots[ada].deadline - 1 == 15,
 	"both players share the same server-authored fifteen-second countdown")
 local multipliers = { snapshots[ada].cards[1].multiplier, snapshots[ada].cards[2].multiplier }
-check(multipliers[1]>=1 and multipliers[1]<=20 and multipliers[2]>=1 and multipliers[2]<=20, "both cards show bounded multipliers before the first ball")
-request(ada,"Mark",1,1)
-check(not snapshots[ada].cards[1].cells[1].marked,"manual marks cannot mark uncalled numbers")
+check(multipliers[1]==1 and multipliers[2]==1, "legacy card factors are disabled before the first ball")
+local firstUnmarked=1
+while snapshots[ada].cards[1].cells[firstUnmarked].marked do firstUnmarked+=1 end
+request(ada,"Mark",1,firstUnmarked)
+check(not snapshots[ada].cards[1].cells[firstUnmarked].marked,"manual marks cannot mark uncalled numbers")
 request(ada,"Setting","autoMark",true)
 check(snapshots[ada].settings.autoMark == false,"unowned auto-mark requests are rejected")
 request(ben,"Setting","autoMark",true)
@@ -176,6 +181,21 @@ check(snapshots[ada].settings.musicVolume == 0.2, "valid music settings persist 
 request(ada, "Setting", "musicVolume", 0/0)
 request(ada, "Setting", "sfxVolume", math.huge)
 check(snapshots[ada].settings.musicVolume == 0.2 and snapshots[ada].settings.sfxVolume == 0.7, "invalid volume values cannot corrupt saves")
+untilPhase("LastCall")
+local manualBonus={}
+for _,card in ipairs(snapshots[ada].bonuses) do
+	for index,cell in ipairs(card.cells) do
+		if not cell.marked then
+			request(ada,"MarkBonus",card.id,index,nil,-1)
+			for _,current in ipairs(snapshots[ada].bonuses) do if current.id==card.id then assert(not current.cells[index].marked) end end
+			request(ada,"MarkBonus",card.id,index)
+			if cell.available then manualBonus[card.id]=manualBonus[card.id] or {};manualBonus[card.id][cell.number]=true end
+			request(ada,"MarkBonus",card.id,index)
+			advance(0.4)
+		end
+	end
+end
+check(next(manualBonus)~=nil,"server accepts called bonus marks during last call with stale/duplicate inputs rejected")
 untilPhase("Results")
 local result, seen = snapshots[ada], {}
 check(#result.history == 20, "main round draws exactly twenty balls")
@@ -188,31 +208,56 @@ check(true, "all twenty draws are unique, bounded, and identical for both client
 for _, target in ipairs({ ada, ben }) do
 	for _, card in ipairs(snapshots[target].bonuses) do
 		local matched = 0
-		for _, cell in ipairs(card.cells) do if seen[cell.number] then matched += 1 end end
+		for _, cell in ipairs(card.cells) do if cell.premarked or (target==ben and seen[cell.number]) or (target==ada and manualBonus[card.id] and manualBonus[card.id][cell.number]) then matched += 1 end end
 		assert(card.progress == matched and card.qualified == (#card.cells > 0 and matched == #card.cells))
 	end
 end
 check(true, "each player's qualification is computed from their own card")
 check(result.cards[1].multiplier == multipliers[1] and result.cards[2].multiplier == multipliers[2], "card multipliers are fixed through the full round")
-for _, card in ipairs(result.cards) do for _, cell in ipairs(card.cells) do assert(not cell.marked) end end
+for _, card in ipairs(result.cards) do for _, cell in ipairs(card.cells) do assert(cell.marked==cell.premarked) end end
 check(true,"called numbers never mark main cells for an unowned player")
-for _,card in ipairs(snapshots[ben].cards) do for _,cell in ipairs(card.cells) do assert(cell.marked==(seen[cell.number]==true)) end end
+for _,card in ipairs(snapshots[ben].cards) do for _,cell in ipairs(card.cells) do assert(cell.marked==(seen[cell.number]==true or cell.premarked)) end end
 check(true,"verified Auto Mark owner marks exactly called matching cells on the shared draw")
-check(result.pesos == 20 and result.summary.bonusPending, "only existing participation reward is paid while bonus rules are pending")
+local function expectedLines(cards)
+	local amount=0
+	local definitions=modules.PatternRules.expand(Config.Main.Patterns,5)
+	for _,card in ipairs(cards) do
+		for _,pattern in ipairs(definitions) do
+			if table.find(card.completed,pattern.id) then
+				local factor=1;for _,index in ipairs(pattern.cells) do factor*=card.cells[index].multiplier or 1 end
+				amount+=15*factor
+			end
+		end
+	end
+	return amount
+end
+local adaReward=expectedLines(result.cards)
+check(result.pesos==adaReward and result.summary.bonusPending,"starting lines pay their full cell-based rewards without a participation bonus")
+local expected=expectedLines(snapshots[ben].cards)
+check(expected>0 and snapshots[ben].pesos==expected,"server credits each completed line using cell multipliers instead of the old card factor")
+local previous=snapshots[ben].pesos
+request(ben,"Reward",99999)
+check(snapshots[ben].pesos==previous,"completed lines cannot be paid twice by forged requests")
+request(ben,"PremiumEquip","marker_aurora")
+check(snapshots[ben].owned.marker_aurora and snapshots[ben].equipped.marker=="marker_aurora" and snapshots[ben].pesos==previous,"verified premium pass equips its exact cosmetic without spending Pesos")
+request(ada,"Cosmetic","marker_aurora")
+request(ada,"PremiumEquip","marker_aurora")
+check(not snapshots[ada].owned.marker_aurora,"premium cosmetics cannot be acquired free through Pesos or forged equip requests")
 request(ada, "Participate")
 request(ada, "Reward", 9999)
-check(snapshots[ada].pesos == 20, "repeated/post-round actions cannot duplicate rewards")
+check(snapshots[ada].pesos == adaReward, "repeated/post-round actions cannot create rewards")
 untilPhase("Intermission")
 check(#snapshots[late].bonuses[1].cells == 3 and #snapshots[ada].history == 0, "reset deals fresh free cards to late joiners and clears draw history")
 request(ada, "Participate")
 untilPhase("Drawing")
 advance(1.6)
 local coins = savedProfiles[ada].data.pesos
+local departingReward=expectedLines(snapshots[ada].cards)
 players.PlayerRemoving:Fire(ada)
 ada.Parent = nil
 for index, entry in ipairs(playersList) do if entry == ada then table.remove(playersList, index); break end end
 advance(0.01)
-check(savedProfiles[ada].data.pesos == coins + 20 and savedProfiles[ada].closing, "leaving settles existing participation before closing the save")
+check(savedProfiles[ada].data.pesos == coins+departingReward and savedProfiles[ada].closing, "leaving settles completed lines only once and closes the save")
 taskMock.spawn(shutdown)
 advance(0.2)
 check(savedProfiles[ben].closing and savedProfiles[late].closing, "shutdown closes every remaining profile")

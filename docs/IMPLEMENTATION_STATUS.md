@@ -1,68 +1,45 @@
-# Implementation status · 0.4.0
+# Implementation status · 0.5.0
 
-## Latest additions
+## Confirmed and active
 
-Auto Mark pass integration, three guaranteed cosmetic pets, free-chest bookkeeping and UI, system-message/history plumbing and durable rolling global payout records are implemented. See [FEATURE_SETUP.md](FEATURE_SETUP.md) for exact runtime behavior and limitations. The real pass ID and licensed audio assets must be configured externally.
+Two free 5×5 main cards and four bonus entries; shared pool 1–60, twenty unique calls, fifteen-second countdown. The center remains numbered, with no extra free space. Each main card has 8–12 permanent starting marks and one or two randomly positioned 10×/20×/50× cells. Counts and values use uniform choices. Starting numbers remain in the machine's draw pool.
 
-The chest upgrade is **permanent**. Its reset schedule/timezone, exact increase, cap/stacking, affected bonuses and fixed/random reward still require answers. Its probability effect and claims remain disabled. This does not block the independent pet, pass or record systems.
+All five rows, five columns and two diagonals can pay once each: **15 Pesos × the product of multiplier cells on that line**. Cell multipliers replace the old 1×–20× card multiplier; ordinary lines have factor one. Starting-completed lines pay identically. Full house has no separate extra reward. Rewards settle at round end or departure after at least one shared draw. No participation or flat round-completion payment remains. Rewards and validation run on the server; repeated client requests cannot award again.
 
-## Confirmed decisions
+The small Coin/Duck/Pačinki cards have 3/4/4 numbers. They share a uniformly chosen total of 0–8 starting marks allocated randomly subject to leaving one unmarked space per card. Calls do not mark automatically for nonowners. Manual bonus marking rejects uncalled numbers, stale rounds, invalid indices and duplicates. Verified Auto Mark covers both main and bonus cards. Qualification records once per card and never qualifies an empty Go CRazy entry.
 
-- Shared pool 1–60; exactly 20 unique draws; free cards.
-- Each player receives two main cards and one of each bonus: six entries total.
-- Main grid stays 5×5. A 25-distinct-number full card cannot finish with only 20 draws.
-- Four separate bonus cards, with exact names Coin flip, Duck hunt, Pačinki, Go CRazy.
-- Qualification counts: 3, 4, 4, and **unconfirmed** respectively.
-- Signed multiplier bounds: −50…+50, −100…+100, −200…+200; no analogous small design cap for Go CRazy.
-- Initial base: 20 Pesos × multiplier.
-- Duck hunt is a reveal/cover/shuffle/choose game. An unanswered choice or departure must still get a server-picked result.
-- Coin flip and Pačinki use a common server-selected multiplier for qualified players, including nonresponders. Go CRazy shared-result semantics need reconciliation with its later pointer-choice description.
-- Latest Go CRazy specification: 64-segment wheel, three selectable prize pointers; the stop at the selected pointer determines the multiplier.
-- Original blue architecture/assets; normal Roblox controls; discreet credit “Created by Kikapucchino”.
+The enlarged, enclosed blue lobby has three rooms, 64 native seats, group tables, café, original decorations and a physical Robux boutique. Three legendary cosmetic passes and intended 60-Robux Auto Mark use actual price queries and server ownership checks, but IDs are unconfigured. Guaranteed Pesos cosmetics/pets and saved settings remain operational in Studio practice/live profiles as appropriate.
 
-## Required answers before dependent gameplay can be finished
+## Bonus groundwork versus live gameplay
 
-| Area | Still unspecified |
+`PatternRules` supports rows, columns, both diagonals and full house through one validator. Active groups are shown before drawing; completed cells are outlined.
+
+`BonusQueue` accepts only trusted server-prepared events with an eligible roster, outcome tables and a settlement function. It serializes intro/preview/choice/animation/reveal phases; rejects spectator, expired and duplicate choices; chooses automatically on timeout/departure; and publishes only validated committed results. Duck preview values must be a permutation of its private final mapping. The wheel requires 64 values, three distinct pointer offsets and one authoritative shared stop.
+
+`BonusPresentation` implements four original fullscreen procedural scenes: flipping coin, Duck reveal/cover/shuffle/selection, animated peg-board drop, and 64-sector wheel/three pointer selection. Only eligible players see them. The normal HUD restores between active and inactive presentation; queue transitions do not overlap. Touch controls remain above the presentation; camera/CoreGui/movement are unchanged. Choices are 44 pixels tall, with scrolling, countdown and reduced motion. Tests run fixture events through the actual modules, not through a live Roblox renderer.
+
+**No production event is enqueued and no bonus pays yet.** The future settlement caller must durably commit rewards before reporting them as committed; the presentation queue itself is not a currency ledger. Fixtures are not configured production probabilities. `BonusRules` and `ExactInteger` retain tested signed/large-integer calculations. Actual signed/huge balance migration, atomic bonus receipts and departure settlement need the rules below. Do not pass such results into the current nonnegative numeric profile (cap 1,000,000,000).
+
+## Remaining decisions and external configuration
+
+| Area | Still needed |
 | --- | --- |
-| Main cards | Winning patterns, free center yes/no, base reward for a completed pattern and whether more than one pattern can pay per card. Card count is confirmed as two. |
-| Coin flip | Two exact face multipliers and probabilities. 3×/20× were examples, not an accepted distribution. |
-| Duck hunt | Exact values and how many covered objects carry each value. |
-| Pačinki | Exact slot values, slot counts, and probabilities. |
-| Go CRazy | Qualification count, all 64 sector values, probabilities/equal sector chance, pointer behavior, any secondary choices or multiplier combinations. Is a shared spin allowed to give different pointer results to different players, or must every qualifier receive the same multiplier? |
-| Negative results | Deduct saved balance or this round's earnings? Can balances be negative? What happens when funds are insufficient? |
-| Coordination | Interrupt drawing or queue after ball 20? Once per player per round or retrigger? If retriggering, what creates a fresh qualification? |
-| Numeric representation | Helpers currently support integer multipliers. If fractional outcomes are intended, their precision/rounding rules must also be specified. |
+| Coin flip | Two exact face multipliers and probabilities, within −50…+50. |
+| Duck hunt | Exact values and object counts, within −100…+100. |
+| Pačinki | Slot values/counts and probabilities, within −200…+200. |
+| Go CRazy | Qualification count, 64 sector values/probabilities, three pointer offsets, secondary choices/combinations if any. Clarify whether a common spin may pay different selected-pointer results, versus the earlier requirement that everyone receives the same multiplier. |
+| Negative outcomes | Saved balance or round earnings; negative balances allowed; insufficient-funds treatment. Integer helpers exist; any fractional precision/rounding would need specifying. |
+| Scheduling | Interrupt draws or queue after ball 20; once per card/round or retrigger and its reset rule. |
+| Permanent free chest | Reset/timezone, exact boost, cap/stacking, affected bonuses and fixed/random reward. Permanence is already confirmed. |
+| Passes | Real experience-owned pass IDs and actual configured prices. The intended Auto Mark base price is 60 Robux. |
+| Audio | Licensed/permitted Roblox IDs for the requested music and human narration. |
 
-The timeout/departure question is answered: automatic Duck selection; common outcomes in the other bonuses. It does not need to be answered again, except for the Go CRazy pointer conflict above. Actual settlement of these outcomes cannot be enabled until values, timing and deductions exist.
+Duck nonresponse/departure fallback is already confirmed. Coin/Pačinki should use common server outcomes. Do not re-ask main-card count, line rewards, multiplier replacement, payment of starting lines, or small-card mark limits; those are implemented.
 
-## Runtime versus groundwork
+The 99-Robux request is understood as one bonus in each of three consecutive rounds, each randomly selected, with permission to fully premark its qualification card. **No purchase or automatic qualification is enabled.** Its paid access to random spendable rewards conflicts with the documented gambling concern and needs resolution in addition to the missing payout tables. No charge occurs for an unimplemented product.
 
-The active controller executes assignment → synchronized 15-second intermission → drawing/start cue → twenty draws → last call → qualification summary → participation results → reset. The start cue occupies 1.5 seconds after countdown zero. Cards and fixed multipliers are assigned before countdown begins. Eligibility updates on each draw. It can flag all three configured bonus types independently in one round; there is no single-bonus restriction. The unconfigured Go CRazy card does not qualify from an empty number list.
+## Audio and release limits
 
-**No real bonus queue runs yet.** Retrigger policy, interruption timing and bonus-resolution phases depend on the requested decisions. There is no placeholder spin that pretends to award a real outcome.
+The requested lobby/intro YouTube links are reference metadata only. Six music slots cover lobby, a nonlooping bonus intro and four looping bonus tracks. One music Sound fades out before changing tracks; missing IDs stay silent. Human narration ducks music to 22% of its selected volume, with independent music/voice/effects settings. Bonus scene music routing is implemented, but production scene triggering and bonus-name voice start integration remain dependent on bonus execution. All 68 human-voice slots are empty; subtitles work.
 
-`GameRules` now deals two 5×5 cards with no repeated numbers inside a card. All 25 cells are currently numbered; the unanswered free-center decision is not treated as a final rule. Manual server-validated marks are active, including after a previous draw. Main pattern validation and payouts remain disabled pending center/pattern/base-reward decisions. The latest request reintroduces Auto Mark as a permanent pass. Its saved preference never grants access without a server ownership check; nonowners mark manually.
-
-Each card independently receives an integer multiplier from 1 through 20. `Config.Main.MultiplierWeights` contains 20 weights of 1: each result has probability 1/20 = 5%. To change odds, edit the corresponding nonnegative integer weights; probability is weight divided by their sum. The sum must be positive. This table is the sole distribution; spending/player behavior is never an input. Multipliers do not change mid-round and are disclosed before the first draw.
-
-`claimMainReward` provides one-time multiplication of a server-determined eligible main-card base reward. Its tests use fixture base rewards only. It is not called by the live controller while base rewards and pattern eligibility remain unconfirmed, and does not multiply participation or bonus results.
-
-`BonusRules` is a pure helper, not a live service. Its common-outcome cache and per-player receipts are scoped to a server round. Duck selection consumes a **server-owned mapping supplied by the future controller**, with automatic index selection when no answer is supplied. Mapping creation, covered-object animation, deadlines, departure settlement and persistent receipts are not integrated. Test outcome tables are fixtures only; none are production prize distributions.
-
-`ExactInteger` computes signed decimal payouts without converting huge multipliers to floating point, and formats long values for display. Its 1024-digit guard is a technical resource limit, not a small Go CRazy design cap. Overflow is rejected before output. Balance addition, schema migration and an atomic/idempotent persistent bonus ledger must be implemented with the confirmed deduction policy. The current version-1 DataStore schema is intentionally unchanged; its normalizer caps numeric Pesos at 1,000,000,000. Do not feed huge or signed bonus amounts into that schema.
-
-The server still pays the previous build's 20-Pesos participation reward once after a participating player has seen a draw. A successful manual mark, intentionally opening cards, or equipping the holder establishes participation; changing volume settings alone does not. Merely receiving the default visible panel does not establish participation. Leaving before the first ball pays nothing. This is not a new pattern reward or bonus payout.
-
-## Audio and presenter
-
-See [AUDIO_SETUP.md](AUDIO_SETUP.md) for all 68 required human-voice recordings, music/effect slots, exact manifest fields, timing limits, consent/licensing and asset-permission setup. The stage character and spoken-announcement/subtitle controller are implemented; recordings are not. This build has working subtitles and intentionally silent asset slots.
-
-One music Sound loops the current track; a sequential transition swaps it without stacking tracks. A separate voice Sound consumes the server's announcement IDs, expires outdated cues and temporarily reduces music to 22% of the selected music volume. Voice mute prevents ducking. Failed/unloaded voice assets use subtitles, never delayed speech for an old ball. Music, voice and effect volumes/mutes are separate and saved. Bonus-name cues and soundtrack slots are prepared but are not triggered by individual qualification; real shared bonus-start integration awaits bonus execution.
-
-The enclosed three-room model, presenter and café are built with original primitives. Layout/geometry tests cover floors, ceilings, perimeter glazing, collision-clear routes, desktop tray arrangement and mobile target sizes. Actual rendered visual quality, sound, avatar movement and mobile control overlap require Studio playtesting.
-
-## Review limits
-
-No Evolution artwork, sounds, code, logos or exact interface was imported. No third-party license notices were removed. Retaining requested bonus names does not establish trademark clearance or permission to reproduce distinctive presentations. The title's availability has not been verified.
-
-Read [the policy review](POLICY_REVIEW.md) before choosing a public-release implementation. No public Roblox publication or moderation approval is claimed. GitHub publication distributes the source/test build only.
+[Studio tests](STUDIO_GUIDE.md), [configuration](FEATURE_SETUP.md), [audio](AUDIO_SETUP.md) and [policy assessment](POLICY_REVIEW.md) describe the remaining checks. No Studio rendering, real marketplace transaction, real-device performance, public Roblox publication, trademark clearance or moderation approval is claimed.

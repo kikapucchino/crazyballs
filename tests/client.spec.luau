@@ -2,6 +2,8 @@ local startClient = require("./.generated/ClientHarness")
 local loadAudio = require("./.generated/AudioControllerHarness")
 local loadPanel = require("./.generated/CardPanelHarness")
 local loadEffects = require("./.generated/WorldEffectsHarness")
+local loadPremium = require("./.generated/PremiumShopHarness")
+local loadBonus = require("./.generated/BonusPresentationHarness")
 local loadFeatures = require("./.generated/FeaturePanelsHarness")
 local loadPets = require("./.generated/PetEffectsHarness")
 local loadPetBuilder = require("./.generated/PetBuilderHarness")
@@ -28,6 +30,8 @@ local function environment(missing)
 	local panel = new("ModuleScript", "CardPanel", gui)
 	local config, economy = new("ModuleScript", "Config", shared), new("ModuleScript", "Economy", shared)
 	local audioModule, effectsModule = new("ModuleScript", "AudioController", gui), new("ModuleScript", "WorldEffects", gui)
+	local premiumModule=new("ModuleScript","PremiumShop",gui)
+	local bonusModule=new("ModuleScript","BonusPresentation",gui)
 	local featureModule=new("ModuleScript","FeaturePanels",gui)
 	local petEffects=new("ModuleScript","PetEffects",gui)
 	local petBuilder=new("ModuleScript","PetBuilder",shared)
@@ -38,7 +42,7 @@ local function environment(missing)
 		new("RemoteEvent", "State", remotes)
 	end
 	local player = new("Player")
-	local services = { MarketplaceService={},TextChatService=new("TextChatService"), ContentProvider = { PreloadAsync = function(_, ids, callback)
+	local services = { ProximityPromptService={PromptTriggered=Mock.signal()},MarketplaceService={},TextChatService=new("TextChatService"), ContentProvider = { PreloadAsync = function(_, ids, callback)
 		for _, id in ipairs(ids) do callback(id, "AssetFetchStatus.Success") end
 	end }, UserInputService = { TouchEnabled = false }, Players = { LocalPlayer = player }, ReplicatedStorage = replication, SoundService = new("SoundService"),
 		RunService = { RenderStepped = Mock.signal() }, TweenService = { Create = function(_, target, _, properties)
@@ -60,7 +64,7 @@ local function environment(missing)
 	}
 	env.Instance, env.warn = { new = new }, function(message) table.insert(warnings, message) end
 	env.require = function(module)
-		if module==featureModule then return loadFeatures(env) elseif module==petEffects then return loadPets(env) elseif module==petBuilder then return loadPetBuilder(env) elseif module == config then return Config elseif module == economy then return Economy
+		if module==premiumModule then return loadPremium(env) elseif module==bonusModule then return loadBonus(env) elseif module==featureModule then return loadFeatures(env) elseif module==petEffects then return loadPets(env) elseif module==petBuilder then return loadPetBuilder(env) elseif module == config then return Config elseif module == economy then return Economy
 		elseif module == panel then return loadPanel(env) elseif module == layout then return require("../src/shared/CardLayout") elseif module == manifest then return require("../src/shared/AudioManifest") elseif module == audioModule then return loadAudio(env) elseif module == effectsModule then return loadEffects(env) end
 		error("Unknown module")
 	end
@@ -202,7 +206,7 @@ test("main cells use distinct symbols for called and marked states; volume mute 
 	h.remotes.State.OnClientEvent:Fire(data)
 	local card=h.gui:FindFirstChild("MainCard1",true)
 	assert(card.Cell1.Text=="•1" and card.Cell2.Text=="✓2" and card.Cell3.Text=="3")
-	assert(string.find(card.Multiplier.Text,"20×"))
+	assert(string.find(card.Multiplier.Text,"15 Pesos / line"))
 	h.gui:FindFirstChild("voiceVolumeMute",true).Activated:Fire()
 	local request=h.requests[#h.requests]
 	assert(request[1]=="Setting" and request[2]=="voiceVolume" and request[3]==0)
@@ -251,5 +255,59 @@ test("system chat labels and escapes server results and rate limits duplicate sn
 	assert(#messages==1 and messages[1]=="[Cloudpop System] &lt;user&gt; +20 Pesos")
 	now=7;h.services.RunService.RenderStepped:Fire(0.1);assert(#messages==2)
 	now=14;h.services.RunService.RenderStepped:Fire(0.1);assert(#messages==2)
+end)
+test("all four bonus cinematics restore the HUD, preserve camera and reserve mobile controls",function()
+	local h=environment();h.gui.Enabled=true;h.services.UserInputService.TouchEnabled=true
+	local camera={CameraType="Custom"};h.env.workspace.CurrentCamera=camera
+	h.gui.AbsoluteSize={X=844,Y=390};startClient(h.env)
+	local overlay;for _,item in ipairs(h.all) do if item.Name=="CloudpopBonus" then overlay=item end end
+	assert(overlay and overlay.DisplayOrder<0 and not overlay.ResetOnSpawn)
+	local data=snapshot("Drawing")
+	for _,kind in ipairs({"coin","duck","pacinki","crazy"}) do
+		local count=if kind=="coin" then 2 elseif kind=="crazy" then 64 else 4
+		local event={id=kind,kind=kind,name=kind,eligible=true,phase="Choice",values=table.create(count,"3"),
+			pointerOffsets={0,21,43},slotCount=count,choiceCount=if kind=="crazy" then 3 elseif kind=="duck" then count else 0,
+			startedAt=0,deadline=10}
+		data.bonusPresentation=event;h.remotes.State.OnClientEvent:Fire(data)
+		assert(not h.gui.Enabled and overlay.Enabled and h.env.workspace.CurrentCamera==camera)
+		assert(overlay:FindFirstChild("SafeArea",true).Position[1]==150)
+		if event.choiceCount>0 then
+			local choice=overlay:FindFirstChild("Choice1",true);assert(choice.Size[2]==44)
+			choice.Activated:Fire();assert(h.requests[#h.requests][1]=="BonusChoice" and h.requests[#h.requests][2]==kind)
+			event.choice=1;h.remotes.State.OnClientEvent:Fire(data)
+			local n=#h.requests;choice.Activated:Fire();assert(#h.requests==n)
+		end
+		event.phase="Animate";event.result={index=1,stopIndex=1,multiplier="3",pesos=60,committed=true}
+		data.settings.reducedMotion=true;h.remotes.State.OnClientEvent:Fire(data);h.services.RunService.RenderStepped:Fire(0.1)
+		event.phase="Reveal";h.remotes.State.OnClientEvent:Fire(data)
+		assert(string.find(overlay:FindFirstChild("ActualResult",true).Text,"+60 Pesos"))
+		h.player.CharacterAdded:Fire(h.new("Model"));assert(overlay.Enabled and not h.gui.Enabled)
+	end
+	data.bonusPresentation=nil;h.remotes.State.OnClientEvent:Fire(data)
+	assert(h.gui.Enabled and not overlay.Enabled and h.env.workspace.CurrentCamera==camera)
+end)
+test("bonus snapshots exclude spectators and an absent music asset stays silent",function()
+	local h=environment();h.gui.Enabled=true;startClient(h.env)
+	local data=snapshot("Drawing");data.bonusPresentation={eligible=false}
+	h.remotes.State.OnClientEvent:Fire(data);assert(h.gui.Enabled)
+	h=environment()
+	local audio=loadAudio(h.env).new({Music={lobby="rbxassetid://123",bonusIntro="rbxassetid://456",coin="rbxassetid://789"},SFX={}})
+	local function flush() for _,callback in ipairs(h.delayed) do callback() end;table.clear(h.delayed) end
+	audio:setScene(nil);flush();assert(h.services.SoundService.CloudpopMusic.Looped)
+	audio:setScene({phase="Intro",kind="coin"});flush();assert(not h.services.SoundService.CloudpopMusic.Looped)
+	local generation=audio.generation;audio:setScene({phase="Intro",kind="coin"});assert(audio.generation==generation)
+	audio:setScene({phase="Animate",kind="coin"});flush();assert(h.services.SoundService.CloudpopMusic.SoundId=="rbxassetid://789")
+	audio:setScene({phase="Animate",kind="duck"});flush();assert(not h.services.SoundService.CloudpopMusic.IsPlaying)
+	audio:setScene(nil);flush();assert(h.services.SoundService.CloudpopMusic.SoundId=="rbxassetid://123")
+end)
+test("premarks, multiplier cells, line highlights and manual bonus requests render distinctly",function()
+	local h=environment();startClient(h.env);local data=snapshot("Drawing");local cells={}
+	for index=1,25 do cells[index]={number=index,marked=index==1,premarked=index==1,available=index<=2,multiplier=if index==1 then 50 else nil} end
+	data.cards={{cells=cells,highlight={[1]=true},completed={"row1"}}}
+	data.bonuses[1].cells={{number=1,marked=true,premarked=true},{number=2,available=true},{number=3}}
+	h.remotes.State.OnClientEvent:Fire(data)
+	local card=h.gui:FindFirstChild("MainCard1",true);assert(card.Cell1.Text=="◇1\n50×" and card.Cell1.PatternHighlight.Enabled)
+	local bonus=h.gui:FindFirstChild("coin",true);assert(bonus.Cell1.Text=="◇1" and bonus.Cell2.Text=="•2" and bonus.Cell3.Text=="3")
+	bonus.Cell2.Activated:Fire();local request=h.requests[#h.requests];assert(request[1]=="MarkBonus" and request[2]=="coin" and request[3]==2)
 end)
 print("Client/tool/audio: " .. passed .. " tests passed (mock Roblox services)")

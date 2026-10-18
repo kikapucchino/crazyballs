@@ -1,4 +1,4 @@
-# Studio testing · build 0.4.0
+# Studio testing · build 0.5.0
 
 ## 1. Open and play
 
@@ -12,14 +12,14 @@ Desktop cards start visible in a bottom-center horizontal tray: **two main cards
 
 ## 2. One round
 
-1. Confirm both 5×5 cards are dealt during **Starts in 15**, with different numbers within each card and a multiplier from 1×–20× on each. Overlap between different cards is allowed.
-2. At zero the server changes to Drawing and announces the start. Its 1.5-second cue precedes the first ball; then 20 balls are drawn at four-second intervals.
-3. Try clicking an uncalled number: it must not mark. A called/unmarked number shows **•**; click/tap it to change to **✓**. Earlier called numbers remain markable until LastCall ends. Settings now contains a server-verified Auto Mark toggle for owners of the configured pass; nonowners continue marking for free.
-4. Watch the bonus cards: Coin flip needs three matches, Duck hunt and Pačinki four. Go CRazy has a visibly pending count; it must not qualify from an empty list. More than one bonus can qualify.
-5. Confirm each main multiplier is unchanged from the beginning of the round. It does not multiply participation or bonus results.
-6. At results, a participating player receives the existing 20-Pesos participation reward. Main pattern payouts and bonus payouts are still inactive. A valid mark or intentionally opening/equipping cards establishes participation; passive receipt of cards does not.
+1. During **Starts in 15**, verify two 5×5 numbered cards. Each has 8–12 `◇` starting marks and one or two 10×/20×/50× multiplier cells. The center is numbered; cards may overlap each other, but each card contains distinct numbers.
+2. At zero, a 1.5-second start cue precedes the first of twenty shared balls, four seconds apart. Starting-mark numbers can still be drawn.
+3. Uncalled numbers cannot be marked. Tap `•` called numbers to mark them on either main or bonus cards; old calls remain markable through Last Call. Verified Auto Mark owners may enable catch-up for both card types.
+4. Bonus starting marks total at most eight, possibly zero, with at least one unmarked space on every configured card. Coin needs three marked numbers, Duck/Pačinki four; Go CRazy's count remains pending. More than one card can qualify. Qualification does not yet launch a bonus game.
+5. Every completed row, column and diagonal highlights. At results, independently total **15 × product of the multiplier cells on each completed line**, including starting-completed lines. An ordinary line is 15; a 20×/50× line is 15,000. The old card multiplier is disabled; full house has no separate extra award.
+6. With no completed lines, expect zero Pesos. Repeated marks, reopening Cards and result requests must never pay again. Leaving after the first ball settles earned lines once; leaving before it pays nothing.
 
-The center currently contains a number. Free-center treatment, winning patterns and base rewards remain unanswered; no pattern winner is declared. The unresolved Go CRazy and signed-bonus rules are documented in `IMPLEMENTATION_STATUS.md`.
+See `IMPLEMENTATION_STATUS.md` for the unresolved bonus rules. The current numeric balance cap is one billion Pesos; a reward at the cap credits only the available space.
 
 ## 3. Exact Explorer hierarchy
 
@@ -33,6 +33,7 @@ ReplicatedStorage
     ├── ChestRules                   ModuleScript
     ├── PayoutRules                  ModuleScript
     ├── PetBuilder                   ModuleScript
+    ├── PatternRules                 ModuleScript
     ├── GameRules                    ModuleScript
     ├── BonusRules                   ModuleScript (calculation groundwork)
     └── ExactInteger                 ModuleScript (calculation groundwork)
@@ -46,12 +47,15 @@ ServerScriptService
     ├── PetService                   ModuleScript
     ├── PayoutStore                  ModuleScript
     ├── GlobalPayouts                ModuleScript
+    ├── BonusQueue                   ModuleScript
     ├── ResultFeed                   ModuleScript
     └── CardHolder                   ModuleScript
 StarterGui
 └── CloudpopUI                       ScreenGui, ResetOnSpawn=false
     ├── StartupStatus                TextLabel
     ├── GameClient                   LocalScript
+    ├── BonusPresentation            ModuleScript
+    ├── PremiumShop                  ModuleScript
     ├── CardPanel                    ModuleScript
     ├── AudioController              ModuleScript
     ├── FeaturePanels                ModuleScript
@@ -67,13 +71,15 @@ Runtime instances include `Cloudpop.Remotes.Action`/`State`, `Workspace.Cloudpop
 
 `Workshop` uses `LobbyPlan` for the three floor/ceiling extents and doorway geometry. The main and viewing readouts are `DrawDisplay.Readout.Text` and `ViewingDisplay.Readout.Text`. `Presenter` is an original static character Model. The card holder is decorative; private card numbers are only sent to their owner.
 
-The server owns deck generation, multipliers, eligibility, marks, prices, balances and saves. Clients send intentions, not reward amounts or prices. Main-card multiplier weights are integers in `Config.Main.MultiplierWeights`; the default 20 equal weights give exactly 5% to each value. Changing that table is an explicit tuning change, not a spending-based adjustment.
+The server owns decks, fixed starting marks/multiplier cells, qualification, prices, balances and saves. Clients send intentions only. `PatternRules` expands the configured active groups; `GameRules.lineAwards` calculates distinct line rewards. Legacy card multiplier weights remain in configuration for compatibility but are disabled.
+
+A separate runtime `PlayerGui.CloudpopBonus` ScreenGui hosts eligible-only scenes and survives respawn. Its DisplayOrder is below default Roblox touch controls. The lobby boutique's `RobuxShopPrompt` opens the Robux tab. Production bonus events remain unqueued; fixture tests cannot establish Studio visual quality.
 
 ## 4. Multiplayer and mobile
 
-Use Studio's **Test → Server & Clients / Local Server** with two clients (labels vary by Studio version). Verify shared countdown/deadline, first-ball timing, all 20 numbers, visible avatars/holders, individual cards, independent marks, different possible main multipliers and individual bonus qualifications.
+Use Studio's **Test → Server & Clients / Local Server** with two clients (labels vary by Studio version). Verify shared countdown/deadline, first-ball timing, all 20 numbers, visible avatars/holders, individual cards, independent marks, different starting marks/multiplier cells and individual bonus qualifications.
 
-Join another client after drawing starts: it must wait for fresh cards next intermission. Reset an avatar: one holder returns and the GUI is not duplicated. Buy an owned cosmetic twice: the second action equips without charging again. Leaving before the first draw grants no participation; leaving after participation settles once.
+Join another client after drawing starts: it must wait for fresh cards next intermission. Reset an avatar: one holder returns and the GUI is not duplicated. Buy an owned cosmetic twice: the second action equips without charging again. Leaving before the first draw grants nothing; leaving after it settles completed lines once.
 
 Use Device Emulator at desktop, portrait phone and landscape phone sizes. Check:
 
@@ -93,7 +99,7 @@ Follow [AUDIO_SETUP.md](AUDIO_SETUP.md) to supply 68 licensed human recordings a
 
 ## 6. New feature setup
 
-Follow [FEATURE_SETUP.md](FEATURE_SETUP.md) for the actual pass ID/price setup, pet testing, permanent chest status, supported system chat and separate rolling global records. Shop and Settings include Looks/Pets/Settings/Chest/Records tabs; each panel scrolls on small screens. Global records require live servers and are excluded from all Studio sessions.
+Follow [FEATURE_SETUP.md](FEATURE_SETUP.md) for the actual pass ID/price setup, pet testing, permanent chest status, supported system chat and separate rolling global records. Shop and Settings include Looks/Pets/Robux/Settings/Chest/Records tabs; each panel scrolls on small screens. Global records require live servers and are excluded from all Studio sessions.
 
 ## 7. Saving and rebuilding
 
@@ -101,7 +107,7 @@ Studio practice never calls DataStore and resets on Stop. For persistence tests 
 
 1. Publish that test copy and enable **Studio Access to API Services** there.
 2. Set a Boolean attribute `EnableStudioSaves=true` on `CloudpopServer.ProfileStore`.
-3. Earn participation Pesos, purchase/equip a cosmetic and change voice volume. Wait for **Progress saved** in Settings, stop and rejoin.
+3. Earn line-reward Pesos, purchase/equip a cosmetic and change voice volume. Wait for **Progress saved** in Settings, stop and rejoin.
 4. Verify balance, ownership, style and all three volumes persist. Also test through the normal Roblox client.
 
 The store stays `CloudpopProfiles_v1`, key `player_<UserId>`. Existing saves retain their balance/cosmetics; missing voice volume gets 0.8. Auto Mark preference, pet ownership/equipment, chest receipts and payout outbox now persist; actual pass access is verified separately. Signed/huge bonus balances are not written to this numeric version-1 ledger.

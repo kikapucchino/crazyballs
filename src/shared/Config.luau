@@ -1,8 +1,9 @@
 -- Public tuning only. Outcomes, decks, and hidden selections live on the server.
 return {
 	Title = "Cloudpop Commons",
-	Build = "0.4.0",
+	Build = "0.5.0",
 	AutoMarkPass = { Id = 0, IntendedPrice = 60 },
+	PaidBonusOffer = {Enabled=false,Id=0,IntendedPrice=99}, -- Three random bonuses across three consecutive rounds; policy/payouts unresolved, no purchase flow.
 	Chest = { Permanent = true, ClaimRulesConfirmed = false, EffectEnabled = false, ResetMode = "", ResetOffsetSeconds = 0,
 		RewardMode = "", RewardUnits = 0 },
 	DataStoreName = "CloudpopProfiles_v1",
@@ -11,13 +12,15 @@ return {
 	DrawCount = 20,
 	ResultsSeconds = 10,
 	NumberPool = 60,
-	-- Two dealt cards are confirmed. The center is numbered while free-center/pattern rules remain pending.
-	Main = { Count = 2, Grid = 5, FreeCenter = false, Patterns = {}, CardsEnabled = true, RewardsConfirmed = false,
-		-- Relative integer weights. All 20 outcomes have weight 1 => exactly 5% each.
+	-- Two free numbered 5x5 cards; every distinct row, column and diagonal can pay once.
+	Main = { Count = 2, Grid = 5, StartingMarks = {Minimum=8,Maximum=12}, StartingPatternPolicy="pay", CardMultiplierEnabled=false, FreeCenter = false, Patterns = {"row","column","diagonal"}, LineBasePesos=15, CardsEnabled = true, RewardsConfirmed = true,
+		MultiplierCells = {Enabled=true,Minimum=1,Maximum=2,Values={10,20,50},Stacking="replace"},
+		-- Legacy distribution retained for compatibility; CardMultiplierEnabled=false disables it.
 		MultiplierWeights = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 },
 	},
-	Rewards = { Participation = 20 }, -- Existing participation reward, not a bonus multiplier.
+	Rewards = { Participation = 0 }, -- Removed by request: rewards come from completed lines/bonuses only.
 	BonusBasePesos = 20,
+	BonusStartingMarks = {MaximumTotal=8},
 	Bonuses = {
 		{ id = "coin", name = "Coin flip", count = 3, minimum = -50, maximum = 50, shared = true },
 		{ id = "duck", name = "Duck hunt", count = 4, minimum = -100, maximum = 100, shared = false },
@@ -29,10 +32,16 @@ return {
 	BonusPayoutsEnabled = false,
 	GoCRazy = { Segments = 64, PrizePointers = 3, Confirmed = false },
 	Audio = {
-		Music = { lobby = "", coin = "", duck = "", pacinki = "", crazy = "" },
+		References = {lobby="https://youtu.be/8bTuNaVfNTE",bonusIntro="https://youtu.be/dzdTQrzWS_M"},
+		-- References are not playable assets. Supply licensed, permitted Roblox IDs only.
+		BonusIntroSeconds = 3,
+		Music = { lobby = "", bonusIntro = "", coin = "", duck = "", pacinki = "", crazy = "" },
 		SFX = { draw = "", mark = "", qualify = "", reveal = "", result = "" },
 	},
 	Catalog = {
+		{ id="card_frost",name="Legendary Frostglass",category="card",payment="Robux",passId=0,price=0,color={170,214,255},description="A frost-blue card frame. Cosmetic only; no reward or odds change." },
+		{ id="marker_aurora",name="Legendary Aurora",category="marker",payment="Robux",passId=0,price=0,color={99,222,240},glyph="★",description="Cyan star marks. Cosmetic only; no reward or odds change." },
+		{ id="marker_moon",name="Legendary Moonlight",category="marker",payment="Robux",passId=0,price=0,color={226,242,255},glyph="✦",description="Icy four-point star marks. Cosmetic only; no reward or odds change." },
 		{ id="pet_lumen", name="Lumen Loaf", category="pet", price=500, color={131,223,239}, description="A tiny lantern companion with soft sails" },
 		{ id="pet_prism", name="Prismote", category="pet", price=500, color={179,176,244}, description="A curious cubic creature with orbiting beads" },
 		{ id="pet_tassel", name="Tide Tassel", category="pet", price=500, color={127,201,183}, description="A sea-glass companion with three flowing ribbons" },

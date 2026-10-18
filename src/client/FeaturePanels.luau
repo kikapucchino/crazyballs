@@ -3,10 +3,13 @@ local Players=game:GetService("Players")
 local TextChatService=game:GetService("TextChatService")
 local Shared=game:GetService("ReplicatedStorage"):WaitForChild("Cloudpop")
 local PetBuilder=require(Shared.PetBuilder)
+local PremiumShop=require(script.Parent.PremiumShop)
 local Features={}
 function Features.new(body,settings,ui,config,request)
 	local self={pages={},heights={Pets=580,Chest=270,Records=820},state=nil,seenSerial=0,queue={},nextMessage=0,price=nil,priceId=nil}
 	local make,label,button=ui.make,ui.label,ui.button
+	local premium=PremiumShop.new(body,ui,config,request)
+	self.pages.Robux=premium.root;self.heights.Robux=premium.height
 	local function page(name,height)
 		local frame=make("Frame",name,body,{Size=UDim2.new(1,-6,0,height),BackgroundTransparency=1,Visible=false})
 		self.pages[name]=frame;return frame
@@ -63,6 +66,7 @@ function Features.new(body,settings,ui,config,request)
 	end
 	function self:render(state)
 		self.state=state
+		premium:render(state)
 		for _,item in ipairs(config.Catalog) do
 			if item.category=="pet" then
 				petButtons[item.id].Text=item.name.." · "..(if state.equipped.pet==item.id then "Equipped" elseif state.owned[item.id] then "Equip · owned" else item.price.." Pesos")

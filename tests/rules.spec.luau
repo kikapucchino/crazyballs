@@ -37,7 +37,7 @@ test("bonus cards use distinct 1–60 numbers and preserve every requested name/
 end)
 test("multiple bonus types qualify independently and a pending wheel never auto-qualifies", function()
 	local state, drawn = Rules.newCardState(Config, random), {}
-	for _, card in pairs(state.bonuses) do for _, number in ipairs(card.numbers) do drawn[number] = true end end
+	for _, card in pairs(state.bonuses) do for _, number in ipairs(card.numbers) do drawn[number] = true;card.marks[number]=true end end
 	assert(#Rules.qualify(state, drawn) == 3)
 	assert(not state.bonuses.crazy.qualified)
 	assert(#Rules.qualify(state, drawn) == 0)
@@ -45,31 +45,33 @@ end)
 test("qualification depends on individual cards, never on another player's success", function()
 	local a, b = Rules.newCardState(Config, random), Rules.newCardState(Config, random)
 	a.bonuses.coin.numbers, b.bonuses.coin.numbers = {1,2,3}, {4,5,6}
-	Rules.qualify(a, { [1] = true, [2] = true, [3] = true })
-	Rules.qualify(b, { [1] = true, [2] = true, [3] = true })
+	Rules.markAll(a, { [1] = true, [2] = true, [3] = true })
+	Rules.markAll(b, { [1] = true, [2] = true, [3] = true })
 	assert(a.bonuses.coin.qualified and not b.bonuses.coin.qualified)
 end)
 test("configured main cards are 5x5, marking rejects forged/undrawn cells", function()
 	local configuration = table.clone(Config)
-	configuration.Main = { CardsEnabled = true, Count = 2, FreeCenter = true, MultiplierWeights = Config.Main.MultiplierWeights }
+	configuration.Main = { StartingMarks=Config.Main.StartingMarks,CardsEnabled = true, Count = 2, FreeCenter = true, MultiplierWeights = Config.Main.MultiplierWeights }
 	local state = Rules.newCardState(configuration, random)
 	assert(#state.cards == 2 and #state.cards[1] == 25 and state.cards[1][13] == 0 and state.marks[1][0])
 	assert(not Rules.mark(state, {}, 1, 1))
-	local drawn = { [state.cards[1][1]] = true }
+	local chosen=1
+	while state.marks[1][state.cards[1][chosen]] do chosen+=1 end
+	local drawn = { [state.cards[1][chosen]] = true }
 	for _, bad in ipairs({0, -1, 26, 1.5, math.huge, 0/0, "1", {}}) do
 		assert(not Rules.mark(state, drawn, 1, bad))
 		assert(not Rules.mark(state, drawn, bad, 1))
 	end
-	assert(Rules.mark(state, drawn, 1, 1))
-	assert(not Rules.mark(state, drawn, 1, 1))
+	assert(Rules.mark(state, drawn, 1, chosen))
+	assert(not Rules.mark(state, drawn, 1, chosen))
 end)
-test("participation settles once; merely receiving cards cannot farm it", function()
+test("round settlement is once-only and grants no participation payout", function()
 	local state = Rules.newCardState(Config, random)
 	assert(Rules.settle(state, Config.Rewards).total == 0)
 	assert(Rules.settle(state, Config.Rewards) == nil)
 	state = Rules.newCardState(Config, random)
 	state.participated = true
-	assert(Rules.settle(state, Config.Rewards).total == 20)
+	assert(Rules.settle(state, Config.Rewards).total == 0)
 	assert(Rules.settle(state, Config.Rewards) == nil)
 end)
 test("multiplier validators preserve signed bounds and reject invalid distributions", function()
@@ -154,7 +156,7 @@ test("saved volume settings migrate old profiles and sanitize nonfinite inputs",
 	assert(profile.settings.musicVolume == 0.5 and profile.settings.sfxVolume == 0.25)
 	assert(Economy.normalize({}, Config.Catalog).settings.musicVolume == 0.5)
 end)
-test("1000 deals use unique numbers per card and fixed 1–20 integer multipliers", function()
+test("1000 deals use unique numbers per card and a disabled legacy card factor", function()
 	for _=1,1000 do
 		local state=Rules.newCardState(Config,random)
 		for index,card in ipairs(state.cards) do
@@ -183,6 +185,6 @@ test("a main multiplier applies once to that card reward, never to participation
 	assert(Rules.claimMainReward(state,1,10,true)==nil)
 	assert(Rules.claimMainReward(state,2,10,true)==200)
 	state.participated=true
-	assert(Rules.settle(state,Config.Rewards).total==20)
+	assert(Rules.settle(state,Config.Rewards).total==0)
 end)
 print("Rules/economy: " .. passed .. " tests passed")

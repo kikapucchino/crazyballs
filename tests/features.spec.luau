@@ -67,7 +67,7 @@ test("automatic marking only marks drawn numbers without changing cards or multi
 	Rules.markAll(board,drawn);Rules.markAll(board,drawn)
 	for i,card in ipairs(board.cards) do
 		assert(board.multipliers[i]==before.multipliers[i])
-		for j,number in ipairs(card) do assert(number==before.cards[i][j] and (board.marks[i][number]==true)==(drawn[number]==true)) end
+		for j,number in ipairs(card) do assert(number==before.cards[i][j] and (board.marks[i][number]==true)==(drawn[number]==true or before.premarks[i][number]==true)) end
 	end
 	assert(not board.participated)
 end)

@@ -100,7 +100,7 @@ return Bonus
         <Properties>
           <string name="Name">CardLayout</string>
           <string name="Source"><![CDATA[-- Responsive geometry in pixels. No scaling the 44px cell targets to fit narrow screens.
-local Layout = { CardWidth = 244, CardHeight = 276, BonusWidth = 396, Gap = 12 }
+local Layout = { CardWidth = 244, CardHeight = 302, BonusWidth = 396, Gap = 12 }
 function Layout.compute(width, height, touch, count)
 	local landscape = width > height
 	local footer = if not touch then 78 elseif landscape then 72 else math.min(230, height * 0.30)
@@ -108,7 +108,7 @@ function Layout.compute(width, height, touch, count)
 	local contentWidth = math.max(1, count) * (Layout.CardWidth + Layout.Gap) + Layout.BonusWidth
 	return {
 		width = math.min(contentWidth + 20, math.max(200, width - margin * 2)),
-		height = math.min(334, math.max(150, height * (if touch then 0.45 else 0.50))),
+		height = math.min(392, math.max(150, height * (if touch then 0.45 else 0.50))),
 		footer = footer, contentWidth = contentWidth, bonusX = math.max(1, count) * (Layout.CardWidth + Layout.Gap),
 	}
 end
@@ -152,8 +152,9 @@ return Chest
           <string name="Source"><![CDATA[-- Public tuning only. Outcomes, decks, and hidden selections live on the server.
 return {
 	Title = "Cloudpop Commons",
-	Build = "0.4.0",
+	Build = "0.5.0",
 	AutoMarkPass = { Id = 0, IntendedPrice = 60 },
+	PaidBonusOffer = {Enabled=false,Id=0,IntendedPrice=99}, -- Three random bonuses across three consecutive rounds; policy/payouts unresolved, no purchase flow.
 	Chest = { Permanent = true, ClaimRulesConfirmed = false, EffectEnabled = false, ResetMode = "", ResetOffsetSeconds = 0,
 		RewardMode = "", RewardUnits = 0 },
 	DataStoreName = "CloudpopProfiles_v1",
@@ -162,13 +163,15 @@ return {
 	DrawCount = 20,
 	ResultsSeconds = 10,
 	NumberPool = 60,
-	-- Two dealt cards are confirmed. The center is numbered while free-center/pattern rules remain pending.
-	Main = { Count = 2, Grid = 5, FreeCenter = false, Patterns = {}, CardsEnabled = true, RewardsConfirmed = false,
-		-- Relative integer weights. All 20 outcomes have weight 1 => exactly 5% each.
+	-- Two free numbered 5x5 cards; every distinct row, column and diagonal can pay once.
+	Main = { Count = 2, Grid = 5, StartingMarks = {Minimum=8,Maximum=12}, StartingPatternPolicy="pay", CardMultiplierEnabled=false, FreeCenter = false, Patterns = {"row","column","diagonal"}, LineBasePesos=15, CardsEnabled = true, RewardsConfirmed = true,
+		MultiplierCells = {Enabled=true,Minimum=1,Maximum=2,Values={10,20,50},Stacking="replace"},
+		-- Legacy distribution retained for compatibility; CardMultiplierEnabled=false disables it.
 		MultiplierWeights = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 },
 	},
-	Rewards = { Participation = 20 }, -- Existing participation reward, not a bonus multiplier.
+	Rewards = { Participation = 0 }, -- Removed by request: rewards come from completed lines/bonuses only.
 	BonusBasePesos = 20,
+	BonusStartingMarks = {MaximumTotal=8},
 	Bonuses = {
 		{ id = "coin", name = "Coin flip", count = 3, minimum = -50, maximum = 50, shared = true },
 		{ id = "duck", name = "Duck hunt", count = 4, minimum = -100, maximum = 100, shared = false },
@@ -180,10 +183,16 @@ return {
 	BonusPayoutsEnabled = false,
 	GoCRazy = { Segments = 64, PrizePointers = 3, Confirmed = false },
 	Audio = {
-		Music = { lobby = "", coin = "", duck = "", pacinki = "", crazy = "" },
+		References = {lobby="https://youtu.be/8bTuNaVfNTE",bonusIntro="https://youtu.be/dzdTQrzWS_M"},
+		-- References are not playable assets. Supply licensed, permitted Roblox IDs only.
+		BonusIntroSeconds = 3,
+		Music = { lobby = "", bonusIntro = "", coin = "", duck = "", pacinki = "", crazy = "" },
 		SFX = { draw = "", mark = "", qualify = "", reveal = "", result = "" },
 	},
 	Catalog = {
+		{ id="card_frost",name="Legendary Frostglass",category="card",payment="Robux",passId=0,price=0,color={170,214,255},description="A frost-blue card frame. Cosmetic only; no reward or odds change." },
+		{ id="marker_aurora",name="Legendary Aurora",category="marker",payment="Robux",passId=0,price=0,color={99,222,240},glyph="★",description="Cyan star marks. Cosmetic only; no reward or odds change." },
+		{ id="marker_moon",name="Legendary Moonlight",category="marker",payment="Robux",passId=0,price=0,color={226,242,255},glyph="✦",description="Icy four-point star marks. Cosmetic only; no reward or odds change." },
 		{ id="pet_lumen", name="Lumen Loaf", category="pet", price=500, color={131,223,239}, description="A tiny lantern companion with soft sails" },
 		{ id="pet_prism", name="Prismote", category="pet", price=500, color={179,176,244}, description="A curious cubic creature with orbiting beads" },
 		{ id="pet_tassel", name="Tide Tassel", category="pet", price=500, color={127,201,183}, description="A sea-glass companion with three flowing ribbons" },
@@ -260,7 +269,7 @@ function Economy.normalize(raw, catalog)
 	end
 	if type(raw.payoutOutbox)=="table" then
 		for _,entry in ipairs(raw.payoutOutbox) do
-			if #profile.payoutOutbox>=2048 then break end
+			if #profile.payoutOutbox>=20000 then break end
 			if type(entry)=="table" and type(entry.id)=="string" and #entry.id<=39
 				and type(entry.playerName)=="string" and #entry.playerName<=30
 				and type(entry.source)=="string" and #entry.source<=60
@@ -298,6 +307,7 @@ function Economy.purchase(profile, catalog, id)
 	if not item then
 		return false, "Unknown item."
 	end
+	if item.payment=="Robux" then return false,"Equip this item through the Robux boutique after ownership is verified." end
 	if profile.owned[id] then
 		profile.equipped[item.category] = id
 		return true, item.name .. " equipped."
@@ -401,22 +411,58 @@ function Rules.claimMainReward(state, cardIndex, base, eligible)
 	return reward
 end
 function Rules.newCardState(config, random)
-	local state = { cards = {}, marks = {}, multipliers = {}, claimed = {}, bonuses = {}, participated = false, settled = false }
-	-- Dealing/marking is independent of the still-unconfirmed pattern rewards.
+	local state = { cards = {}, marks = {}, premarks = {}, tiles = {}, multipliers = {}, claimed = {}, bonuses = {}, participated = false, settled = false }
+	-- Starting marks and multiplier cells are fixed at deal time; the shared draw pool is unchanged.
 	if config.Main.CardsEnabled then
 		assert(Rules.isIndex(config.Main.Count, 8), "Confirm a main card count from 1 to 8")
 		for index = 1, config.Main.Count do
 			local deck, card = Rules.shuffle(config.NumberPool, random), {}
 			for cell = 1, 25 do card[cell] = if cell == 13 and config.Main.FreeCenter then 0 else deck[cell] end
-			state.cards[index], state.marks[index] = card, { [0] = true }
-			state.multipliers[index] = Rules.cardMultiplier(config.Main.MultiplierWeights, random)
+			state.cards[index], state.marks[index],state.premarks[index] = card, {},{}
+			local limits=config.Main.StartingMarks
+			local count=random(limits.Minimum,limits.Maximum)
+			assert(count>=8 and count<=12 and count%1==0,"Main starting marks must be 8–12")
+			local positions=Rules.shuffle(25,random)
+			local chosen=0
+			if config.Main.FreeCenter then state.marks[index][0]=true;state.premarks[index][0]=true;chosen=1 end
+			for _,position in ipairs(positions) do
+				local number=card[position]
+				if not state.marks[index][number] and chosen<count then
+					state.marks[index][number],state.premarks[index][number]=true,true;chosen+=1
+				end
+			end
+			state.multipliers[index] = if config.Main.CardMultiplierEnabled then Rules.cardMultiplier(config.Main.MultiplierWeights, random) else 1
+			state.tiles[index]={}
+			local tuning=config.Main.MultiplierCells
+			if tuning and tuning.Enabled then
+				local count=random(tuning.Minimum,tuning.Maximum)
+				assert(count>=1 and count<=2,"At most two multiplier cells per main card")
+				local slots=Rules.shuffle(25,random)
+				for tile=1,count do state.tiles[index][slots[tile]]=tuning.Values[random(1,#tuning.Values)] end
+			end
 		end
 	end
 	for _, definition in ipairs(config.Bonuses) do
 		local numbers, deck = {}, Rules.shuffle(config.NumberPool, random)
 		for index = 1, definition.count do numbers[index] = deck[index] end
-		state.bonuses[definition.id] = { numbers = numbers, progress = 0, qualified = false }
+		state.bonuses[definition.id] = { numbers = numbers, marks = {}, premarks = {}, progress = 0, qualified = false }
 	end
+	local candidates,capacity={},0
+	for _,definition in ipairs(config.Bonuses) do
+		local card=state.bonuses[definition.id]
+		capacity+=math.max(0,#card.numbers-1)
+		for _,number in ipairs(card.numbers) do table.insert(candidates,{card=card,number=number}) end
+	end
+	local target=random(0,math.min(config.BonusStartingMarks.MaximumTotal,capacity))
+	local assigned,byCard=0,{}
+	for _,index in ipairs(Rules.shuffle(#candidates,random)) do
+		local entry=candidates[index];local card=entry.card
+		if assigned<target and (byCard[card] or 0)<#card.numbers-1 then
+			card.premarks[entry.number],card.marks[entry.number]=true,true
+			byCard[card]=(byCard[card] or 0)+1;assigned+=1
+		end
+	end
+	Rules.qualify(state)
 	return state
 end
 function Rules.mark(state, drawn, cardIndex, cellIndex)
@@ -426,17 +472,31 @@ function Rules.mark(state, drawn, cardIndex, cellIndex)
 	state.marks[cardIndex][number], state.participated = true, true
 	return true
 end
+function Rules.markBonus(state,drawn,id,cellIndex)
+	if state.settled or type(id)~="string" then return false end
+	local card=state.bonuses[id]
+	if not card or not Rules.isIndex(cellIndex,#card.numbers) then return false end
+	local number=card.numbers[cellIndex]
+	if not drawn[number] or card.marks[number] then return false end
+	card.marks[number],state.participated=true,true
+	Rules.qualify(state)
+	return true
+end
 function Rules.markAll(state, drawn)
 	if state.settled then return end
 	for index,card in ipairs(state.cards) do
 		for _,number in ipairs(card) do if drawn[number] then state.marks[index][number]=true end end
 	end
+	for _,card in pairs(state.bonuses) do
+		for _,number in ipairs(card.numbers) do if drawn[number] then card.marks[number]=true end end
+	end
+	Rules.qualify(state)
 end
-function Rules.qualify(state, drawn)
+function Rules.qualify(state)
 	local newlyQualified = {}
 	for id, card in pairs(state.bonuses) do
 		local progress = 0
-		for _, number in ipairs(card.numbers) do if drawn[number] then progress += 1 end end
+		for _, number in ipairs(card.numbers) do if card.marks[number] then progress += 1 end end
 		card.progress = progress
 		if #card.numbers > 0 and progress == #card.numbers and not card.qualified then
 			card.qualified = true
@@ -445,16 +505,98 @@ function Rules.qualify(state, drawn)
 	end
 	return newlyQualified
 end
-function Rules.settle(state, rewards)
+function Rules.lineAwards(state,completedByCard,startingByCard,base,startingPolicy,patterns,stacking)
+	assert(type(base)=="number" and base%1==0 and base>0 and base<=1000000,"Invalid line base reward")
+	local awards,held={},0
+	for cardIndex,completed in ipairs(completedByCard) do
+		local seen,heldCells={},0
+		for _,id in ipairs(completed) do
+			if seen[id] then continue end
+			seen[id]=true
+			local atStart=table.find(startingByCard[cardIndex] or {},id)~=nil
+			if atStart and startingPolicy~="pay" then held+=1
+			else
+				local cellFactor,hasTile=1,false
+				for _,pattern in ipairs(patterns or {}) do
+					if pattern.id~=id then continue end
+					for _,cellIndex in ipairs(pattern.cells) do
+						local multiplier=state.tiles[cardIndex] and state.tiles[cardIndex][cellIndex]
+						if multiplier then hasTile=true;cellFactor*=multiplier end
+					end
+				end
+				if hasTile and stacking~="multiply" and stacking~="replace" then heldCells+=1
+				else
+					local factor=cellFactor*(if stacking=="replace" then 1 else state.multipliers[cardIndex])
+					table.insert(awards,{cardIndex=cardIndex,patternId=id,lines=1,multiplier=factor,pesos=base*factor})
+				end
+			end
+		end
+		held+=heldCells
+	end
+	return awards,held
+end
+function Rules.settle(state, _rewards)
 	if state.settled then return nil end
 	state.settled = true
-	return { total = if state.participated then rewards.Participation else 0, bonusPending = true }
+	return { total = 0, bonusPending = true }
 end
 return Rules
 ]]></string>
         </Properties>
       </Item>
       <Item class="ModuleScript" referent="11">
+        <Properties>
+          <string name="Name">PatternRules</string>
+          <string name="Source"><![CDATA[-- Reusable cell-index patterns. Caller supplies the configured active groups and marked cells.
+local Patterns={Labels={row="Rows",column="Columns",diagonal="Diagonals",full="Full house"}}
+function Patterns.expand(groups,grid)
+	grid=grid or 5
+	local result,seen={},{}
+	local function add(id,label,cells) table.insert(result,{id=id,label=label,cells=cells}) end
+	for _,group in ipairs(groups) do
+		assert(Patterns.Labels[group],"Unknown pattern group: "..tostring(group))
+		if seen[group] then continue end
+		seen[group]=true
+		if group=="row" or group=="column" then
+			for index=1,grid do
+				local cells={}
+				for offset=1,grid do table.insert(cells,if group=="row" then (index-1)*grid+offset else (offset-1)*grid+index) end
+				add(group..index,(if group=="row" then "Row " else "Column ")..index,cells)
+			end
+		elseif group=="diagonal" then
+			for direction=1,2 do
+				local cells={}
+				for index=1,grid do table.insert(cells,(index-1)*grid+(if direction==1 then index else grid-index+1)) end
+				add("diagonal"..direction,"Diagonal "..direction,cells)
+			end
+		elseif group=="full" then
+			local cells={};for index=1,grid*grid do cells[index]=index end
+			add("full","Full house",cells)
+		end
+	end
+	return result
+end
+function Patterns.evaluate(patterns,marked)
+	local completed,highlight={},{}
+	for _,pattern in ipairs(patterns) do
+		local complete=true
+		for _,index in ipairs(pattern.cells) do if not marked[index] then complete=false;break end end
+		if complete then
+			table.insert(completed,pattern.id)
+			for _,index in ipairs(pattern.cells) do highlight[index]=true end
+		end
+	end
+	return completed,highlight
+end
+function Patterns.description(groups)
+	local names={};for _,group in ipairs(groups) do table.insert(names,assert(Patterns.Labels[group])) end
+	return if #names>0 then table.concat(names," / ") else "Pattern schedule and rewards awaiting confirmation"
+end
+return Patterns
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="12">
         <Properties>
           <string name="Name">PayoutRules</string>
           <string name="Source"><![CDATA[-- The active economy uses exact bounded integers. Huge/signed bonus-ledger integration is pending.
@@ -491,7 +633,7 @@ return Rules
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="12">
+      <Item class="ModuleScript" referent="13">
         <Properties>
           <string name="Name">PetBuilder</string>
           <string name="Source"><![CDATA[-- Three original geometric companions, no external models or franchise assets.
@@ -534,15 +676,134 @@ return Pet
       </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="13">
+  <Item class="ServerScriptService" referent="14">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Folder" referent="14">
+    <Item class="Folder" referent="15">
       <Properties>
         <string name="Name">CloudpopServer</string>
       </Properties>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="16">
+        <Properties>
+          <string name="Name">BonusQueue</string>
+          <string name="Source"><![CDATA[-- Presentation orchestration for trusted, fully configured bonus events.
+-- No production odds/timing policy is invented here. The round controller must supply
+-- an eligible roster, immutable public values, private resolver and committed outcomes.
+local Queue={}
+local allowed={coin=true,duck=true,pacinki=true,crazy=true}
+function Queue.new(clock,random,onComplete,introSeconds)
+	local self={pending={},active=nil,seen={},order={}}
+	local function stages(event)
+		local result={{name="Intro",seconds=event.introSeconds or introSeconds or 3}}
+		if event.kind=="duck" then
+			table.insert(result,{name="Preview",seconds=4});table.insert(result,{name="Cover",seconds=1});table.insert(result,{name="Shuffle",seconds=3})
+		end
+		if event.kind=="duck" or event.kind=="crazy" then table.insert(result,{name="Choice",seconds=12}) end
+		table.insert(result,{name="Animate",seconds=5});table.insert(result,{name="Reveal",seconds=6})
+		return result
+	end
+	function self:enqueue(event)
+		assert(type(event.id)=="string" and allowed[event.kind] and type(event.resolve)=="function","Invalid trusted bonus event")
+		assert(type(event.values)=="table" and #event.values>0 and #event.values<=64,"Supply confirmed outcome labels")
+		assert(event.kind~="coin" or #event.values==2,"Coin requires two confirmed faces")
+		assert(event.kind~="crazy" or #event.values==64,"Go CRazy requires 64 confirmed sectors")
+		if event.kind=="crazy" then
+			assert(type(event.pointerOffsets)=="table" and #event.pointerOffsets==3,"Supply three confirmed prize-pointer offsets")
+			local used={}
+			for _,offset in ipairs(event.pointerOffsets) do
+				assert(type(offset)=="number" and offset%1==0 and offset>=0 and offset<64 and not used[offset],"Invalid prize-pointer offset")
+				used[offset]=true
+			end
+			assert(type(event.stopIndex)=="number" and event.stopIndex%1==0 and event.stopIndex>=1 and event.stopIndex<=64,"Supply authoritative shared wheel stop")
+		end
+		if event.kind=="duck" then
+			assert(type(event.previewValues)=="table" and #event.previewValues==#event.values,"Supply the initial Duck preview and final private mapping")
+			local counts={}
+			for _,value in ipairs(event.values) do counts[value]=(counts[value] or 0)+1 end
+			for _,value in ipairs(event.previewValues) do assert(counts[value] and counts[value]>0,"Preview must contain the same outcomes");counts[value]-=1 end
+		end
+		assert(type(event.eligible)=="table" and next(event.eligible),"No eligible roster")
+		if self.seen[event.id] then return false end
+		self.seen[event.id]=true;table.insert(self.order,event.id)
+		if #self.order>256 then self.seen[table.remove(self.order,1)]=nil end
+		local prepared=table.clone(event)
+		prepared.values=table.clone(event.values);prepared.eligible=table.clone(event.eligible)
+		prepared.previewValues=event.previewValues and table.clone(event.previewValues)
+		prepared.pointerOffsets=event.pointerOffsets and table.clone(event.pointerOffsets)
+		event=prepared
+		local entry={event=event,stages=stages(event),stage=0,choices={},results={},disconnected={}}
+		table.insert(self.pending,entry)
+		return true
+	end
+	local function choiceCount(entry) return if entry.event.kind=="crazy" then 3 elseif entry.event.kind=="duck" then #entry.event.values else 0 end
+	function self:choose(userId,eventId,index)
+		local entry=self.active
+		if not entry or entry.event.id~=eventId or not entry.event.eligible[userId] or entry.phase~="Choice" or clock()>=entry.deadline
+			or entry.choices[userId] or type(index)~="number" or index%1~=0 or index<1 or index>choiceCount(entry) then return false end
+		entry.choices[userId]=index
+		return true
+	end
+	function self:leave(userId)
+		local entries=table.clone(self.pending);if self.active then table.insert(entries,self.active) end
+		for _,entry in ipairs(entries) do
+			if entry.event.eligible[userId] then
+				entry.disconnected[userId]=true
+				if choiceCount(entry)>0 and not entry.choices[userId] then entry.choices[userId]=random(1,choiceCount(entry)) end
+			end
+		end
+	end
+	function self:advance()
+		if not self.active and #self.pending>0 then self.active=table.remove(self.pending,1) end
+		local entry=self.active
+		if not entry or entry.resolving or (entry.deadline and clock()<entry.deadline) then return end
+		entry.stage+=1
+		local stage=entry.stages[entry.stage]
+		if not stage then
+			self.active=nil
+			local results={}
+			for _,result in pairs(entry.results) do if result.committed then table.insert(results,result) end end
+			if #results>0 then onComplete({id=entry.event.id,name=entry.event.name,at=clock(),results=results}) end
+			self:advance()
+			return
+		end
+		entry.phase,entry.startedAt,entry.deadline=stage.name,clock(),clock()+stage.seconds
+		if stage.name=="Animate" then
+			entry.resolving=true
+			for userId in pairs(entry.event.eligible) do
+				if choiceCount(entry)>0 and not entry.choices[userId] then entry.choices[userId]=random(1,choiceCount(entry)) end
+				local ok,result=pcall(entry.event.resolve,userId,entry.choices[userId])
+				if ok and entry.event.kind=="crazy" then
+					ok=type(result)=="table" and result.stopIndex==entry.event.stopIndex
+						and result.index==(entry.event.stopIndex-1+entry.event.pointerOffsets[entry.choices[userId]])%64+1
+				end
+				-- Presentation must never turn an estimated outcome into an awarded result.
+				if ok and type(result)=="table" and result.committed==true and type(result.multiplier)=="string"
+					and type(result.pesos)=="number" and result.pesos==result.pesos and math.abs(result.pesos)<math.huge
+					and type(result.index)=="number" and result.index%1==0 and result.index>=1 and result.index<=#entry.event.values and result.multiplier==entry.event.values[result.index] then
+					entry.results[userId]=table.clone(result)
+				else entry.results[userId]={committed=false} end
+			end
+			entry.resolving=false
+			entry.startedAt,entry.deadline=clock(),clock()+stage.seconds
+		end
+	end
+	function self:view(userId)
+		local entry=self.active
+		if not entry or not entry.event.eligible[userId] then return nil end
+		local values=entry.event.values
+		if entry.event.kind=="duck" then values=if entry.phase=="Preview" then entry.event.previewValues elseif entry.phase=="Reveal" then entry.event.values else {} end
+		return {id=entry.event.id,kind=entry.event.kind,name=entry.event.name,phase=if entry.resolving then "Resolving" else entry.phase,
+			startedAt=entry.startedAt,deadline=entry.deadline,eligible=true,choice=entry.choices[userId],choiceCount=choiceCount(entry),
+			values=values,pointerOffsets=entry.event.pointerOffsets,slotCount=#entry.event.values,result=if entry.phase=="Animate" or entry.phase=="Reveal" then entry.results[userId] else nil}
+	end
+	return self
+end
+return Queue
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">CardHolder</string>
           <string name="Source"><![CDATA[-- Server-created tool replicates to everybody. It never changes camera or movement.
@@ -578,7 +839,7 @@ return CardHolder
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Script" referent="16">
+      <Item class="Script" referent="18">
         <Properties>
           <string name="Name">GameServer</string>
           <token name="RunContext">0</token>
@@ -587,6 +848,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Cloudpop")
 local Config = require(Shared.Config)
 local Rules = require(Shared.GameRules)
+local Patterns = require(Shared.PatternRules)
+local activePatterns = Patterns.expand(Config.Main.Patterns,5)
+local patternDescription = Patterns.description(Config.Main.Patterns)
 local Manifest = require(Shared.AudioManifest)
 local Economy = require(Shared.Economy)
 local Profiles = require(script.Parent.ProfileStore)
@@ -596,6 +860,14 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local ChestRules = require(Shared.ChestRules)
 local Pass = require(script.Parent.PassService).new(Marketplace, Config.AutoMarkPass, os.clock)
+local PremiumPasses={}
+for _,item in ipairs(Config.Catalog) do
+	if item.payment=="Robux" then PremiumPasses[item.id]=require(script.Parent.PassService).new(Marketplace,{Id=item.passId,IntendedPrice=item.intendedPrice},os.clock) end
+end
+local function checkPasses(player)
+	Pass:check(player)
+	for _,service in pairs(PremiumPasses) do service:check(player) end
+end
 local Pets = require(script.Parent.PetService).new(require(Shared.PetBuilder), workspace)
 local Feed = require(script.Parent.ResultFeed).new(os.time)
 local Global = require(script.Parent.GlobalPayouts).new(function(record) Feed:record(record) end)
@@ -614,7 +886,11 @@ stateEvent.Parent = remotes
 require(script.Parent.Workshop).build()
 local rng = Random.new()
 local function nextInteger(low, high) return rng:NextInteger(low, high) end
+local BonusQueue = require(script.Parent.BonusQueue).new(function() return workspace:GetServerTimeNow() end,nextInteger,function(event) Feed:completeBonus(event) end,Config.Audio.BonusIntroSeconds)
+-- Enqueue only from a future configured settlement controller. No production bonus is
+-- scheduled until prize distributions, deductions and interrupt/after-draw timing exist.
 local profiles, boards, summaries, rateLimits, loading, characterConnections = {}, {}, {}, {}, {}, {}
+local startingCompleted = {}
 local round = { id = 0, phase = "Waiting", deadline = 0, history = {}, drawn = {}, announcement = nil, announcementId = 0 }
 local closing = false
 
@@ -639,28 +915,43 @@ local function enqueueCommitted(profile, snapshot)
 end
 Profiles.onSaved = enqueueCommitted
 
+local function deal(player)
+	boards[player]=Rules.newCardState(Config,nextInteger)
+	startingCompleted[player]={}
+	for cardIndex,card in ipairs(boards[player].cards) do
+		local marked={}
+		for index,number in ipairs(card) do marked[index]=boards[player].premarks[cardIndex][number]==true end
+		startingCompleted[player][cardIndex]=Patterns.evaluate(activePatterns,marked)
+	end
+end
 local function send(player, notice)
 	local profile = profiles[player]
 	if not profile or player.Parent ~= Players then return end
 	local board = boards[player]
+	local presentation=BonusQueue:view(player.UserId)
 	local cardViews = {}
 	if board then
 		for cardIndex, card in ipairs(board.cards) do
-			local cells = {}
-			for _, number in ipairs(card) do
+			local cells,marked = {},{}
+			for index, number in ipairs(card) do
+				marked[index]=board.marks[cardIndex][number]==true
 				table.insert(cells, { number = number, marked = board.marks[cardIndex][number] == true,
-					available = round.drawn[number] == true })
+					available = round.drawn[number] == true, premarked = board.premarks[cardIndex][number]==true, multiplier=board.tiles[cardIndex][index] })
 			end
-			table.insert(cardViews, { cells = cells, multiplier = board.multipliers[cardIndex] })
+			local completed,highlight=Patterns.evaluate(activePatterns,marked)
+			table.insert(cardViews, { cells = cells, multiplier = board.multipliers[cardIndex],completed=completed,highlight=highlight,
+				startingCompleted=startingCompleted[player] and startingCompleted[player][cardIndex] or {} })
 		end
 	end
+	local premiumViews={}
+	for id,service in pairs(PremiumPasses) do premiumViews[id]=service:view(player) end
 	local bonusViews = {}
 	for _, definition in ipairs(Config.Bonuses) do
 		local card = board and board.bonuses[definition.id]
 		local cells = {}
 		if card then
 			for _, number in ipairs(card.numbers) do
-				table.insert(cells, { number = number, marked = round.drawn[number] == true })
+				table.insert(cells, { number = number, marked = card.marks[number]==true, premarked=card.premarks[number]==true, available=round.drawn[number]==true })
 			end
 		end
 		table.insert(bonusViews, { id = definition.id, name = definition.name, cells = cells,
@@ -669,14 +960,14 @@ local function send(player, notice)
 	end
 	-- Future draws and other players' profiles never leave the server.
 	stateEvent:FireClient(player, {
-		roundId = round.id, phase = round.phase, deadline = round.deadline,
+		roundId = round.id, phase = round.phase, deadline = round.deadline, patternDescription=patternDescription,
 		history = round.history, drawCount = Config.DrawCount, cards = cardViews,
-		announcement = round.announcement, activeBonus = nil, bonuses = bonusViews, mainPending = not Config.Main.RewardsConfirmed, bonusPending = true,
+		announcement = round.announcement, bonusPresentation=presentation, activeBonus = presentation and presentation.kind or nil, bonuses = bonusViews, mainPending = not Config.Main.RewardsConfirmed, bonusPending = true,
 		participated = if board then board.participated else false,
 		pesos = profile.data.pesos, rounds = profile.data.rounds,
 		owned = profile.data.owned, equipped = profile.data.equipped, settings = profile.data.settings,
 		saveStatus = profile.saveStatus, practice = profile.practice,
-		pass = Pass:view(player), chest = ChestRules.status(profile.data.chest, Config.Chest, os.time()),
+		pass = Pass:view(player), premium=premiumViews, chest = ChestRules.status(profile.data.chest, Config.Chest, os.time()),
 		topPayout = Global:view(), recentBonuses = Feed.recent, systemMessages = Feed.messages,
 		players = #Players:GetPlayers(), summary = summaries[player], notice = notice,
 	})
@@ -691,21 +982,31 @@ local function settle(player)
 	if not board or not profile or not usable(player) then return end
 	-- Opening cards and leaving before the first draw is not a played round.
 	if #round.history == 0 then return end
-	local summary = Rules.settle(board, Config.Rewards)
-	if not summary then return end
-	local credited = math.min(summary.total, 1000000000-profile.data.pesos)
-	profile.data.pesos += credited
-	summary.total = credited
-	if credited>0 and not profile.practice and not RunService:IsStudio() then
-		-- The credit and its transaction enter the SAME durable profile write.
-		for index=#profile.data.payoutOutbox,1,-1 do
-			local record=profile.data.payoutOutbox[index]
-			if type(record.at)~="number" or record.at<=os.time()-86400 then table.remove(profile.data.payoutOutbox,index) end
-		end
-		table.insert(profile.data.payoutOutbox,{id=HttpService:GenerateGUID(false),userId=player.UserId,
-			playerName=player.Name,source="Round participation",multiplier="1",pesos=credited,at=os.time()})
+	if board.settled then return end
+	local completed={}
+	for cardIndex,card in ipairs(board.cards) do
+		local marked={};for index,number in ipairs(card) do marked[index]=board.marks[cardIndex][number]==true end
+		completed[cardIndex]=Patterns.evaluate(activePatterns,marked)
 	end
-	if board.participated then profile.data.rounds += 1 end
+	local awards,held=Rules.lineAwards(board,completed,startingCompleted[player] or {},Config.Main.LineBasePesos,Config.Main.StartingPatternPolicy,activePatterns,Config.Main.MultiplierCells.Stacking)
+	local summary=Rules.settle(board,Config.Rewards)
+	if not summary then return end
+	summary.lines,summary.heldStartingLines=0,held
+	if Config.Main.RewardsConfirmed then
+		for _,award in ipairs(awards) do
+			local credited=math.min(award.pesos,1000000000-profile.data.pesos)
+			profile.data.pesos+=credited;summary.total+=credited;summary.lines+=award.lines
+			if credited>0 and not profile.practice and not RunService:IsStudio() then
+				for index=#profile.data.payoutOutbox,1,-1 do
+					local record=profile.data.payoutOutbox[index]
+					if type(record.at)~="number" or record.at<=os.time()-86400 then table.remove(profile.data.payoutOutbox,index) end
+				end
+				table.insert(profile.data.payoutOutbox,{id=HttpService:GenerateGUID(false),userId=player.UserId,
+					playerName=player.Name,source="Main card "..award.cardIndex.." / "..award.patternId,multiplier=tostring(award.multiplier),pesos=credited,at=os.time()})
+			end
+		end
+	end
+	if board.participated or summary.total>0 then profile.data.rounds+=1 end
 	changed(profile)
 	summaries[player] = summary
 end
@@ -726,16 +1027,17 @@ local function addPlayer(player)
 	profiles[player] = profile
 	if not profile.practice then enqueueCommitted(profile, profile.data) end
 	Pets:sync(player, profile.data.equipped.pet)
-	task.spawn(function() Pass:check(player); send(player) end)
+	task.spawn(function() checkPasses(player); send(player) end)
 	characterConnections[player] = player.CharacterAdded:Connect(function() task.spawn(Holder.give, player) end)
 	task.spawn(Holder.give, player)
 	if round.phase == "Intermission" then
-		boards[player] = Rules.newCardState(Config, nextInteger)
+		deal(player)
 	end
 	broadcast()
 end
 
 local function removePlayer(player)
+	BonusQueue:leave(player.UserId)
 	local profile = profiles[player]
 	if profile then
 		-- Earned progress is settled even if a player leaves before the results screen.
@@ -744,8 +1046,9 @@ local function removePlayer(player)
 	end
 	Pets:remove(player)
 	Pass:forget(player)
+	for _,service in pairs(PremiumPasses) do service:forget(player) end
 	if characterConnections[player] then characterConnections[player]:Disconnect(); characterConnections[player] = nil end
-	profiles[player], boards[player], summaries[player], rateLimits[player] = nil, nil, nil, nil
+	profiles[player], boards[player], summaries[player], rateLimits[player],startingCompleted[player] = nil, nil, nil, nil,nil
 	broadcast()
 end
 
@@ -762,8 +1065,16 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 	if not usable(player) then send(player, "Saving is reconnecting. Please wait."); return end
 	local profile, board = profiles[player], boards[player]
 	local notice
-	if name == "RefreshPass" then
-		task.spawn(function() Pass:check(player);send(player) end)
+	if name=="BonusChoice" then
+		BonusQueue:choose(player.UserId,a,b)
+	elseif name=="PremiumEquip" then
+		local service=type(a)=="string" and PremiumPasses[a]
+		local item=service and Economy.find(Config.Catalog,a)
+		if not service or not service:owns(player) then send(player,"This cosmetic requires verified pass ownership.");return end
+		profile.data.owned[a]=true;profile.data.equipped[item.category]=a;changed(profile)
+		notice=item.name.." equipped."
+	elseif name == "RefreshPass" then
+		task.spawn(function() checkPasses(player);send(player) end)
 	elseif name == "UnequipPet" then
 		Economy.unequipPet(profile.data);Pets:sync(player,nil);changed(profile)
 		notice = "Pet unequipped."
@@ -789,6 +1100,8 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 	elseif board and requestedRound == round.id and not board.settled then
 		if name == "Participate" then
 			board.participated = true
+		elseif name == "MarkBonus" and (round.phase == "Drawing" or round.phase == "LastCall") then
+			Rules.markBonus(board,round.drawn,a,b)
 		elseif name == "Mark" and (round.phase == "Drawing" or round.phase == "LastCall") then
 			Rules.mark(board, round.drawn, a, b)
 		end
@@ -796,9 +1109,24 @@ action.OnServerEvent:Connect(function(player, name, a, b, c, requestedRound)
 	send(player, notice)
 end)
 
+task.spawn(function()
+	local previous=""
+	while not closing do
+		BonusQueue:advance()
+		local entry=BonusQueue.active
+		local key=if entry then entry.event.id..":"..tostring(entry.phase) else ""
+		if key~=previous then previous=key;broadcast() end
+		task.wait(0.2)
+	end
+end)
+
 Marketplace.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
-	if passId~=Config.AutoMarkPass.Id or not purchased or not profiles[player] then return end
-	task.spawn(function() Pass:check(player,true);send(player) end)
+	if not purchased or not profiles[player] then return end
+	task.spawn(function()
+		if passId==Config.AutoMarkPass.Id then Pass:check(player,true) end
+		for _,service in pairs(PremiumPasses) do if service:view(player).id==passId then service:check(player,true) end end
+		send(player)
+	end)
 end)
 
 task.spawn(function()
@@ -882,9 +1210,9 @@ while not closing do
 	end
 	round.id += 1
 	round.history, round.drawn = {}, {}
-	boards, summaries = {}, {}
+	boards, summaries,startingCompleted = {}, {},{}
 	for player in pairs(profiles) do
-		if usable(player) then boards[player] = Rules.newCardState(Config, nextInteger) end
+		if usable(player) then deal(player) end
 	end
 	phase("Assignment", 0)
 	phase("Intermission", Config.IntermissionSeconds, "upcoming")
@@ -913,7 +1241,7 @@ end
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">GlobalPayouts</string>
           <string name="Source"><![CDATA[local DataStoreService=game:GetService("DataStoreService")
@@ -1013,26 +1341,27 @@ return Global
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="20">
         <Properties>
           <string name="Name">LobbyPlan</string>
-          <string name="Source"><![CDATA[-- Geometry in studs; shared by construction and collision/accessibility regression checks.
+          <string name="Source"><![CDATA[-- 23,296 square studs: 89% more floor space than the preceding three-room lobby.
 return {
-	Height = 26,
+	Height = 28,
+	Bounds = {x1=-64,x2=144,z1=-56,z2=56},
 	Rooms = {
-		{ id = "DrawHall", name = "DRAW HALL", x1 = -48, x2 = 48, z1 = -40, z2 = 40 },
-		{ id = "SocialLounge", name = "SOCIAL LOUNGE", x1 = 48, x2 = 106, z1 = -40, z2 = 0 },
-		{ id = "ViewingRoom", name = "VIEWING ROOM", x1 = 48, x2 = 106, z1 = 0, z2 = 40 },
+		{ id = "DrawHall", name = "DRAW HALL", x1 = -64, x2 = 64, z1 = -56, z2 = 56 },
+		{ id = "SocialLounge", name = "SOCIAL LOUNGE", x1 = 64, x2 = 144, z1 = -56, z2 = 0 },
+		{ id = "ViewingRoom", name = "VIEWING ROOM", x1 = 64, x2 = 144, z1 = 0, z2 = 56 },
 	},
 	Doors = {
-		{ axis = "z", fixed = 48, start = -40, finish = 40, centers = { -17, 17 }, width = 12, height = 12 },
-		{ axis = "x", fixed = 0, start = 48, finish = 106, centers = { 77 }, width = 12, height = 12 },
+		{ axis = "z", fixed = 64, start = -56, finish = 56, centers = { -24, 24 }, width = 14, height = 14 },
+		{ axis = "x", fixed = 0, start = 64, finish = 144, centers = { 104 }, width = 14, height = 14 },
 	},
 }
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="21">
         <Properties>
           <string name="Name">PassService</string>
           <string name="Source"><![CDATA[-- Injected MarketplaceService makes ownership checks testable without simulated purchases.
@@ -1064,7 +1393,7 @@ return Pass
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="22">
         <Properties>
           <string name="Name">PayoutStore</string>
           <string name="Source"><![CDATA[-- Durable transaction metadata + two UTC-day ordered indexes. Never aggregates players.
@@ -1150,7 +1479,7 @@ return Store
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="21">
+      <Item class="ModuleScript" referent="23">
         <Properties>
           <string name="Name">PetService</string>
           <string name="Source"><![CDATA[local PetService={}
@@ -1178,7 +1507,7 @@ return PetService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="22">
+      <Item class="ModuleScript" referent="24">
         <Properties>
           <string name="Name">ProfileStore</string>
           <string name="Source"><![CDATA[local DataStoreService = game:GetService("DataStoreService")
@@ -1307,7 +1636,7 @@ return Store
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="23">
+      <Item class="ModuleScript" referent="25">
         <Properties>
           <string name="Name">ResultFeed</string>
           <string name="Source"><![CDATA[-- Only trusted award/bonus-completion code may call these methods. No client result remote exists.
@@ -1348,7 +1677,7 @@ return Feed
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="24">
+      <Item class="ModuleScript" referent="26">
         <Properties>
           <string name="Name">Workshop</string>
           <string name="Source"><![CDATA[-- Original enclosed observatory, built only from Roblox primitives.
@@ -1363,6 +1692,7 @@ function Workshop.build()
 		local item = Instance.new(class or "Part")
 		item.Name, item.Size, item.Position = name, size, position
 		item.Anchored, item.Color = true, color
+		item.CastShadow = false
 		item.Material = material or Enum.Material.SmoothPlastic
 		item.TopSurface, item.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
 		item.Parent = parent or model
@@ -1379,9 +1709,9 @@ function Workshop.build()
 		label.Text, label.Parent = text, surface
 		return label
 	end
-	part("Foundation", Vector3.new(158, 5, 84), Vector3.new(29, -3, 0), navy, Enum.Material.Slate)
-	for _,x in ipairs({-40,98}) do
-		for _,z in ipairs({-30,30}) do
+	part("Foundation", Vector3.new(212, 5, 116), Vector3.new(40, -3, 0), navy, Enum.Material.Slate)
+	for _,x in ipairs({-56,136}) do
+		for _,z in ipairs({-48,48}) do
 			part("MarineSupport",Vector3.new(4,10,4),Vector3.new(x,-9.5,z),navy,Enum.Material.Metal)
 		end
 	end
@@ -1403,15 +1733,15 @@ function Workshop.build()
 		return part(name, size, position, color, material)
 	end
 	-- All exterior walls are closed: opaque sill/lintel + collidable glazing between.
-	for _, wall in ipairs({ {"x",-40,-48,106}, {"x",40,-48,106}, {"z",-48,-40,40}, {"z",106,-40,40} }) do
+	for _, wall in ipairs({ {"x",-56,-64,144}, {"x",56,-64,144}, {"z",-64,-56,56}, {"z",144,-56,56} }) do
 		local axis, fixed, low, high = table.unpack(wall)
 		wallPiece("ExteriorSill", axis, fixed, low, high, 2.5, 5, navy)
-		wallPiece("ExteriorLintel", axis, fixed, low, high, 23.5, 5, navy)
-		local glass = wallPiece("Window", axis, fixed, low, high, 13, 16, ice, Enum.Material.Glass)
+		wallPiece("ExteriorLintel", axis, fixed, low, high, 25.5, 5, navy)
+		local glass = wallPiece("Window", axis, fixed, low, high, 14, 18, ice, Enum.Material.Glass)
 		glass.Transparency = 0.68
 		wallPiece("WindowTrim", axis, fixed, low, high, 5, 0.25, cyan, Enum.Material.Metal)
-		wallPiece("Cornice", axis, fixed, low, high, 25.2, 0.5, blue, Enum.Material.Metal)
-		for at = low, high, 12 do wallPiece("WindowMullion", axis, fixed, at, math.min(at+0.5, high), 13, 16, blue, Enum.Material.Metal) end
+		wallPiece("Cornice", axis, fixed, low, high, 27.2, 0.5, blue, Enum.Material.Metal)
+		for at = low, high, 12 do wallPiece("WindowMullion", axis, fixed, at, math.min(at+0.5, high), 14, 18, blue, Enum.Material.Metal) end
 	end
 	for _, wall in ipairs(Plan.Doors) do
 		local cursor = wall.start
@@ -1424,27 +1754,27 @@ function Workshop.build()
 		end
 		wallPiece("InteriorWall", wall.axis, wall.fixed, cursor, wall.finish, Plan.Height/2, Plan.Height, navy)
 	end
-	for _,entry in ipairs({{-17,"SOCIAL LOUNGE · SKY CAFÉ"},{17,"VIEWING ROOM"}}) do
-		local plaque=part("Wayfinding",Vector3.new(0.3,2.4,14),Vector3.new(47.35,14.5,entry[1]),blue)
+	for _,entry in ipairs({{-24,"SOCIAL LOUNGE · SKY CAFÉ"},{24,"VIEWING ROOM"}}) do
+		local plaque=part("Wayfinding",Vector3.new(0.3,2.4,14),Vector3.new(63.35,16.5,entry[1]),blue)
 		sign(plaque,"Directions",entry[2],48,Enum.NormalId.Left)
 	end
-	part("CentralWalkway", Vector3.new(16, 0.06, 66), Vector3.new(0, 0.54, 0), ice)
-	for _, x in ipairs({ -8.1, 8.1 }) do part("PathLight", Vector3.new(0.16, 0.08, 66), Vector3.new(x, 0.56, 0), cyan, Enum.Material.Neon) end
-	part("PresenterStage", Vector3.new(36, 0.6, 20), Vector3.new(0, 0.8, -25), navy)
-	part("StageStep", Vector3.new(36, 0.3, 2), Vector3.new(0, 0.65, -14), blue)
-	local machine = part("MachinePedestal", Vector3.new(14, 3, 10), Vector3.new(0, 2.6, -24), navy, Enum.Material.Metal)
+	part("CentralWalkway", Vector3.new(16, 0.06, 100), Vector3.new(0, 0.54, 0), ice)
+	for _, x in ipairs({ -8.1, 8.1 }) do part("PathLight", Vector3.new(0.16, 0.08, 100), Vector3.new(x, 0.56, 0), cyan, Enum.Material.Neon) end
+	part("PresenterStage", Vector3.new(36, 0.6, 20), Vector3.new(0, 0.8, -41), navy)
+	part("StageStep", Vector3.new(36, 0.3, 2), Vector3.new(0, 0.65, -30), blue)
+	local machine = part("MachinePedestal", Vector3.new(14, 3, 10), Vector3.new(0, 2.6, -40), navy, Enum.Material.Metal)
 	sign(machine, "Nameplate", "CLOUDPOP  /  COMMONS", 52)
-	part("MachineTrim", Vector3.new(14.2, 0.25, 10.2), Vector3.new(0, 4.2, -24), cyan, Enum.Material.Neon)
-	local globe = part("AirChamber", Vector3.new(10, 10, 10), Vector3.new(0, 9, -24), ice, Enum.Material.Glass)
+	part("MachineTrim", Vector3.new(14.2, 0.25, 10.2), Vector3.new(0, 4.2, -40), cyan, Enum.Material.Neon)
+	local globe = part("AirChamber", Vector3.new(10, 10, 10), Vector3.new(0, 9, -40), ice, Enum.Material.Glass)
 	globe.Shape, globe.Transparency, globe.CanCollide = Enum.PartType.Ball, 0.72, false
 	for index = 1, 16 do
 		local angle = index * math.pi / 8
-		local ball = part("DecorativeBall" .. index, Vector3.new(1.1, 1.1, 1.1), Vector3.new(math.cos(angle)*3, 7+index%4, -24+math.sin(angle)*3), if index%3==0 then ice else cyan)
+		local ball = part("DecorativeBall" .. index, Vector3.new(1.1, 1.1, 1.1), Vector3.new(math.cos(angle)*3, 7+index%4, -40+math.sin(angle)*3), if index%3==0 then ice else cyan)
 		ball.Shape, ball.CanCollide, ball.CastShadow = Enum.PartType.Ball, false, false
 	end
-	local display = part("DrawDisplay", Vector3.new(26, 6, 0.5), Vector3.new(0, 19, -36), navy)
+	local display = part("DrawDisplay", Vector3.new(26, 6, 0.5), Vector3.new(0, 19, -52), navy)
 	sign(display, "Readout", "WELCOME\n0 / 20", 90)
-	local emerged = part("DrawnBall", Vector3.new(2.6, 2.6, 2.6), Vector3.new(0, 6, -17), ice)
+	local emerged = part("DrawnBall", Vector3.new(2.6, 2.6, 2.6), Vector3.new(0, 6, -33), ice)
 	emerged.Shape, emerged.CanCollide = Enum.PartType.Ball, false
 	local tag = Instance.new("BillboardGui")
 	tag.Name, tag.Size, tag.AlwaysOnTop, tag.MaxDistance = "BallNumber", UDim2.fromOffset(64,64), false, 100
@@ -1456,22 +1786,22 @@ function Workshop.build()
 	local presenter = Instance.new("Model")
 	presenter.Name, presenter.Parent = "Presenter", model
 	local skin = Color3.fromRGB(181, 126, 93)
-	local torso = part("Torso", Vector3.new(2,2,1), Vector3.new(12,4.1,-25), blue, nil, nil, presenter)
-	part("Head", Vector3.new(1.7,1.6,1.5), Vector3.new(12,5.9,-25), skin, nil, nil, presenter)
+	local torso = part("Torso", Vector3.new(2,2,1), Vector3.new(12,4.1,-41), blue, nil, nil, presenter)
+	part("Head", Vector3.new(1.7,1.6,1.5), Vector3.new(12,5.9,-41), skin, nil, nil, presenter)
 	for _, side in ipairs({-1,1}) do
-		part(if side<0 then "Left Arm" else "Right Arm", Vector3.new(0.8,2,0.9), Vector3.new(12+side*1.45,4.1,-25), blue, nil, nil, presenter)
-		part(if side<0 then "Left Leg" else "Right Leg", Vector3.new(0.8,2,0.9), Vector3.new(12+side*0.5,2.1,-25), navy, nil, nil, presenter)
-		part("Eye", Vector3.new(0.15,0.18,0.08), Vector3.new(12+side*0.35,6.05,-24.22), navy, nil, nil, presenter).CanCollide = false
+		part(if side<0 then "Left Arm" else "Right Arm", Vector3.new(0.8,2,0.9), Vector3.new(12+side*1.45,4.1,-41), blue, nil, nil, presenter)
+		part(if side<0 then "Left Leg" else "Right Leg", Vector3.new(0.8,2,0.9), Vector3.new(12+side*0.5,2.1,-41), navy, nil, nil, presenter)
+		part("Eye", Vector3.new(0.15,0.18,0.08), Vector3.new(12+side*0.35,6.05,-40.22), navy, nil, nil, presenter).CanCollide = false
 	end
-	part("Smile", Vector3.new(0.45,0.1,0.08), Vector3.new(12,5.55,-24.22), ice, nil, nil, presenter).CanCollide=false
-	part("Hair", Vector3.new(1.85,0.5,1.65), Vector3.new(12,6.75,-25), navy, nil, nil, presenter)
-	part("Lapel", Vector3.new(0.2,1.3,0.1), Vector3.new(12,4.15,-24.45), cyan, nil, nil, presenter)
+	part("Smile", Vector3.new(0.45,0.1,0.08), Vector3.new(12,5.55,-40.22), ice, nil, nil, presenter).CanCollide=false
+	part("Hair", Vector3.new(1.85,0.5,1.65), Vector3.new(12,6.75,-41), navy, nil, nil, presenter)
+	part("Lapel", Vector3.new(0.2,1.3,0.1), Vector3.new(12,4.15,-40.45), cyan, nil, nil, presenter)
 	presenter.PrimaryPart = torso
 	local humanoid = Instance.new("Humanoid")
 	humanoid.RequiresNeck, humanoid.BreakJointsOnDeath = false, false
 	humanoid.DisplayName, humanoid.DisplayDistanceType, humanoid.Parent = "Lumi", Enum.HumanoidDisplayDistanceType.None, presenter
-	part("MicrophoneStand", Vector3.new(0.2,4.5,0.2), Vector3.new(11,3.35,-23), navy, Enum.Material.Metal)
-	local microphone = part("Microphone", Vector3.new(0.6,0.35,0.8), Vector3.new(11,5.7,-23), ice, Enum.Material.Metal)
+	part("MicrophoneStand", Vector3.new(0.2,4.5,0.2), Vector3.new(11,3.35,-39), navy, Enum.Material.Metal)
+	local microphone = part("Microphone", Vector3.new(0.6,0.35,0.8), Vector3.new(11,5.7,-39), ice, Enum.Material.Metal)
 	microphone.CanCollide=false
 	local function seat(x,z,rotation)
 		local item = part("LoungeSeat", Vector3.new(3.4,0.8,3.4), Vector3.new(x,2,z), blue, Enum.Material.Fabric,"Seat")
@@ -1480,43 +1810,89 @@ function Workshop.build()
 		part("SeatBack",Vector3.new(3.4,2.4,0.6),Vector3.new(x,3.1,z+offset),navy,Enum.Material.Fabric)
 		part("SeatFoot",Vector3.new(2,1,2),Vector3.new(x,1,z),navy,Enum.Material.Metal)
 	end
+	local function decoration(name,size,position,color,material)
+		local object=part(name,size,position,color,material)
+		object.CanCollide,object.CanTouch,object.CanQuery=false,false,false
+		return object
+	end
 	local function tableAt(x,z)
 		part("TableBase",Vector3.new(2,3,2),Vector3.new(x,2,z),navy,Enum.Material.Metal)
-		part("TableTop",Vector3.new(10,0.45,7),Vector3.new(x,3.7,z),ice)
-		seat(x,z-5.2,180); seat(x,z+5.2,0)
+		part("TableTop",Vector3.new(18,0.45,8),Vector3.new(x,3.7,z),ice)
+		for _,dx in ipairs({-6,0,6}) do seat(x+dx,z-6.5,180);seat(x+dx,z+6.5,0) end
+		decoration("TableRunner",Vector3.new(16,0.07,1.6),Vector3.new(x,3.97,z),blue,Enum.Material.Fabric)
+		local bloom=decoration("TableBloom",Vector3.new(0.9,1,0.9),Vector3.new(x,4.5,z),cyan)
+		bloom.Shape=Enum.PartType.Ball
 	end
-	for _, x in ipairs({-28,28}) do for _, z in ipairs({-5,20}) do tableAt(x,z) end end
-	-- Social room: conversation seating to the left; non-alcoholic café on its north wall.
-	part("LoungeRug",Vector3.new(25,0.06,19),Vector3.new(70,0.55,-22),navy,Enum.Material.Fabric)
-	for _, x in ipairs({62,67,72}) do seat(x,-29,180); seat(x,-14,0) end
-	part("CoffeeTable",Vector3.new(12,1.5,5),Vector3.new(67,1.3,-21),ice)
-	part("CafeCounter",Vector3.new(19,4,4),Vector3.new(92,2.5,-29),navy)
-	part("CafeCounterTop",Vector3.new(20,0.3,4.5),Vector3.new(92,4.65,-29),ice,Enum.Material.Marble)
-	part("CafeBackCabinet",Vector3.new(19,3,3),Vector3.new(92,2,-36),blue)
-	part("CafeShelf",Vector3.new(19,0.4,3),Vector3.new(92,7,-36),ice)
-	local menu = part("CafeMenu",Vector3.new(19,4,0.25),Vector3.new(92,11,-38),navy)
+	for _, x in ipairs({-32,32}) do for _, z in ipairs({-14,18,44}) do
+		decoration("DiningRug",Vector3.new(25,0.05,23),Vector3.new(x,0.54,z),navy,Enum.Material.Fabric)
+		tableAt(x,z)
+	end end
+	-- Social lounge: six-place tables, low seating and a full non-alcoholic bar.
+	for _,x in ipairs({84,124}) do
+		decoration("LoungeRug",Vector3.new(26,0.06,25),Vector3.new(x,0.55,-23),navy,Enum.Material.Fabric)
+		tableAt(x,-23)
+	end
+	part("CafeCounter",Vector3.new(28,4,4),Vector3.new(121,2.5,-44),navy)
+	part("CafeCounterTop",Vector3.new(29,0.3,4.5),Vector3.new(121,4.65,-44),ice,Enum.Material.Marble)
+	part("CafeBackCabinet",Vector3.new(28,3,3),Vector3.new(121,2,-52),blue)
+	for _,y in ipairs({7,10}) do
+		part("CafeShelf",Vector3.new(28,0.4,2.4),Vector3.new(121,y,-53),ice)
+		for i=1,7 do decoration("ShelfCup",Vector3.new(0.6,0.8,0.6),Vector3.new(108+i*3,y+0.6,-53),if i%2==0 then cyan else ice) end
+	end
+	local menu=part("CafeMenu",Vector3.new(28,4,0.25),Vector3.new(121,15,-54),navy)
 	sign(menu,"Menu","SKY CAFÉ\nTea · Cocoa · Fruit coolers",58)
-	for _, x in ipairs({86,92,98}) do
-		seat(x,-23,0)
-		part("CafeCup",Vector3.new(0.6,0.8,0.6),Vector3.new(x,5.2,-29),cyan)
+	for _,x in ipairs({112,118,124,130}) do seat(x,-38,0);decoration("CafeCup",Vector3.new(0.6,0.8,0.6),Vector3.new(x,5.2,-44),cyan) end
+	part("CoffeeMachine",Vector3.new(3,3,2),Vector3.new(132,5,-52),navy,Enum.Material.Metal)
+	-- Separate guaranteed-cosmetic boutique beside the café, off the doorway route.
+	part("BoutiqueCounter",Vector3.new(18,3,4),Vector3.new(82,2,-46),navy)
+	local boutique=part("BoutiqueSign",Vector3.new(19,5,0.4),Vector3.new(82,11,-52),blue)
+	sign(boutique,"ShopLabel","CLOUDPOP BOUTIQUE\nLegendary cosmetic markers",44)
+	local prompt=Instance.new("ProximityPrompt")
+	prompt.Name,prompt.ActionText,prompt.ObjectText="RobuxShopPrompt","Browse cosmetics","Cloudpop Boutique"
+	prompt.HoldDuration,prompt.MaxActivationDistance,prompt.RequiresLineOfSight=0,12,false
+	prompt.Parent=model.BoutiqueCounter
+	for _,x in ipairs({78,86}) do
+		local gem=decoration("BoutiqueDisplay",Vector3.new(1.6,1.6,1.6),Vector3.new(x,4.4,-46),cyan,Enum.Material.Glass)
+		gem.Shape=Enum.PartType.Ball
 	end
-	part("CoffeeMachine",Vector3.new(3,3,2),Vector3.new(99,5,-36),navy,Enum.Material.Metal)
-	-- Separate viewing room, furnished and linked through its own hall door.
-	local screen = part("ViewingDisplay",Vector3.new(25,8,0.5),Vector3.new(79,12,3),navy)
+	-- Complete separate viewing room, with clear aisles on both sides.
+	local screen=part("ViewingDisplay",Vector3.new(36,9,0.5),Vector3.new(108,13,3),navy)
 	sign(screen,"Readout","CLOUDPOP LIVE\n0 / 20",78)
-	for _, z in ipairs({15,25}) do for _, x in ipairs({66,73,80,87}) do seat(x,z,0) end end
-	part("MediaConsole",Vector3.new(25,2,3),Vector3.new(79,1.5,4),blue)
-	for _, x in ipairs({60,99}) do
-		part("DisplayPlinth",Vector3.new(3,4,3),Vector3.new(x,2.5,33),navy)
-		local sculpture=part("OrbitSculpture",Vector3.new(2,2,2),Vector3.new(x,5.5,33),cyan,Enum.Material.Glass)
-		sculpture.Shape=Enum.PartType.Ball
-	end
-	for _, location in ipairs({{-39,-29},{-39,29},{40,30},{56,-35},{99,-7},{99,32}}) do
+	part("MediaConsole",Vector3.new(36,2,3),Vector3.new(108,1.5,4),blue)
+	decoration("ViewingRug",Vector3.new(54,0.06,36),Vector3.new(106,0.55,32),navy,Enum.Material.Fabric)
+	for _,z in ipairs({24,40}) do for _,x in ipairs({84,92,100,112,120,128}) do seat(x,z,0) end end
+	for _,location in ipairs({{-57,-47},{-57,3},{-57,48},{56,-47},{56,48},{73,-48},{137,-7},{137,48},{72,48}}) do
 		local x,z=location[1],location[2]
-		part("Planter",Vector3.new(3,2,3),Vector3.new(x,1.5,z),navy)
+		part("Planter",Vector3.new(3,2,3),Vector3.new(x,1.5,z),ice)
 		for i=1,3 do
-			local leaf=part("CrystalFern",Vector3.new(0.5,3+i,1.5),Vector3.new(x+i-2,4,z),cyan)
-			leaf.Orientation,leaf.CanCollide=Vector3.new(0,i*50,(i-2)*22),false
+			local leaf=decoration("CrystalFern",Vector3.new(0.5,3+i,1.5),Vector3.new(x+i-2,4,z),cyan)
+			leaf.Orientation=Vector3.new(0,i*50,(i-2)*22)
+		end
+	end
+	-- Original constellation wall art, reading shelves and architectural details.
+	for _,entry in ipairs({{-44,-54},{44,-54},{80,-54},{80,54},{130,54}}) do
+		local x,z=entry[1],entry[2]
+		part("ArtFrame",Vector3.new(14,7,0.4),Vector3.new(x,13,z),ice)
+		decoration("ArtCanvas",Vector3.new(13.3,6.3,0.5),Vector3.new(x,13,z),blue)
+		for i=1,5 do
+			local star=decoration("ConstellationStar",Vector3.new(0.6,0.6,0.6),Vector3.new(x-5+i*1.8,12+(i%3),z+(if z<0 then 0.35 else -0.35)),cyan,Enum.Material.Neon)
+			star.Shape=Enum.PartType.Ball
+		end
+	end
+	for _,x in ipairs({-60,140}) do
+		part("ReadingShelf",Vector3.new(2,0.4,18),Vector3.new(x,5,18),ice)
+		for i=1,9 do decoration("Book",Vector3.new(1.4,1.5+(i%3)*0.3,0.7),Vector3.new(x,6,9+i*1.7),if i%2==0 then cyan else blue) end
+	end
+	for _,x in ipairs({-62,62,142}) do
+		for _,z in ipairs({-54,54}) do
+			part("CornerPilaster",Vector3.new(1,28,1),Vector3.new(x,14,z),ice)
+			decoration("WallSconce",Vector3.new(1.2,3,1.2),Vector3.new(x,10,z),cyan,Enum.Material.Neon)
+		end
+	end
+	-- Every Seat is a native Roblox Seat; visual cushions do not intercept seat contact.
+	for _,item in ipairs(model:GetChildren()) do
+		if item:IsA("Seat") then
+			decoration("SeatCushion",Vector3.new(3.1,0.12,3.1),Vector3.new(item.Position.X,2.46,item.Position.Z),ice,Enum.Material.Fabric)
 		end
 	end
 	-- Real scenery beyond the glazed envelope, with no exposed starter baseplate.
@@ -1529,7 +1905,7 @@ function Workshop.build()
 			cloud.Shape,cloud.CanCollide=Enum.PartType.Ball,false
 		end
 	end
-	local spawn=part("WelcomeMat",Vector3.new(10,0.1,6),Vector3.new(0,0.65,31),blue,nil,"SpawnLocation")
+	local spawn=part("WelcomeMat",Vector3.new(10,0.1,6),Vector3.new(0,0.65,47),blue,nil,"SpawnLocation")
 	spawn.Neutral,spawn.Duration,spawn.Transparency=true,0,1
 	local lighting=game:GetService("Lighting")
 	lighting.ClockTime,lighting.Brightness=14,2
@@ -1542,22 +1918,22 @@ return Workshop
       </Item>
     </Item>
   </Item>
-  <Item class="SoundService" referent="25">
+  <Item class="SoundService" referent="27">
     <Properties>
       <string name="Name">SoundService</string>
     </Properties>
   </Item>
-  <Item class="StarterGui" referent="26">
+  <Item class="StarterGui" referent="28">
     <Properties>
       <string name="Name">StarterGui</string>
     </Properties>
-    <Item class="ScreenGui" referent="27">
+    <Item class="ScreenGui" referent="29">
       <Properties>
         <string name="Name">CloudpopUI</string>
         <int name="DisplayOrder">10</int>
         <bool name="ResetOnSpawn">false</bool>
       </Properties>
-      <Item class="ModuleScript" referent="28">
+      <Item class="ModuleScript" referent="30">
         <Properties>
           <string name="Name">AudioController</string>
           <string name="Source"><![CDATA[-- One looping music voice, one queued human-voice channel, four effect voices.
@@ -1625,8 +2001,7 @@ function Audio.new(config, manifest)
 		if changed then transition(targetVolume()) end
 	end
 	function self:setTrack(key)
-		-- With an unfilled bonus slot, a supplied lobby track continues rather than cutting to silence.
-		if asset(config.Music[key]) == "" then key = "lobby" end
+		-- A missing bonus/intro asset stays silent; never substitute the lobby recording.
 		if self.track == key then return end
 		self.track, self.generation, switching = key, self.generation + 1, true
 		local generation = self.generation
@@ -1634,12 +2009,15 @@ function Audio.new(config, manifest)
 		task.delay(0.26, function()
 			if generation ~= self.generation then return end
 			music:Stop()
-			music.SoundId, switching = asset(config.Music[key]), false
+			music.SoundId, music.Looped, switching = asset(config.Music[key]), key~="bonusIntro", false
 			if music.SoundId == "" then return end -- Missing licensed track: do not invent one.
 			music.Volume = 0
 			music:Play()
 			transition(targetVolume())
 		end)
+	end
+	function self:setScene(presentation)
+		self:setTrack(if presentation then (if presentation.phase=="Intro" then "bonusIntro" else presentation.kind) else "lobby")
 	end
 	function self:play(key)
 		local id = asset(config.SFX[key])
@@ -1686,7 +2064,199 @@ return Audio
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="29">
+      <Item class="ModuleScript" referent="31">
+        <Properties>
+          <string name="Name">BonusPresentation</string>
+          <string name="Source"><![CDATA[-- Original procedural cinematics. Animation follows an immutable server result;
+-- it never selects a reward, moves the camera or disables Roblox character controls.
+local Presentation={}
+function Presentation.new(normalGui,ui,request,touch)
+	local make,label,button=ui.make,ui.label,ui.button
+	local colors=ui.colors
+	local overlay=make("ScreenGui","CloudpopBonus",normalGui.Parent,{ResetOnSpawn=false,DisplayOrder=-1,Enabled=false,IgnoreGuiInset=false})
+	local backdrop=make("Frame","Backdrop",overlay,{Size=UDim2.fromScale(1,1),BackgroundColor3=colors.navy,BorderSizePixel=0,Active=false})
+	make("UIGradient","SkyGradient",backdrop,{Color=ColorSequence.new(colors.navy,colors.panel),Rotation=75})
+	local safe=make("Frame","SafeArea",backdrop,{BackgroundTransparency=1})
+	local title=label("Title",safe,"",UDim2.new(1,0,0,36),UDim2.fromOffset(0,0),26)
+	title.TextXAlignment=Enum.TextXAlignment.Center
+	local phase=label("Phase",safe,"",UDim2.new(1,0,0,32),UDim2.fromOffset(0,38),15)
+	phase.TextXAlignment=Enum.TextXAlignment.Center
+	local stage=make("Frame","Stage",safe,{BackgroundTransparency=1,ClipsDescendants=true})
+	local canvas=make("Frame","Canvas",stage,{Size=UDim2.fromOffset(600,320),AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.fromScale(0.5,0.5),BackgroundTransparency=1})
+	local scale=make("UIScale","VisualScale",canvas,{Scale=1})
+	local details=make("ScrollingFrame","OutcomeLabels",safe,{BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=4,CanvasSize=UDim2.fromOffset(0,60),ScrollingDirection=Enum.ScrollingDirection.Y})
+	local detailText=label("Values",details,"",UDim2.new(1,-8,0,60),UDim2.fromOffset(0,0),14)
+	detailText.TextYAlignment=Enum.TextYAlignment.Top
+	local resultText=label("ActualResult",safe,"",UDim2.new(1,0,0,58),UDim2.new(0,0,1,-112),18)
+	resultText.TextXAlignment=Enum.TextXAlignment.Center
+	local choices=make("ScrollingFrame","Choices",safe,{Size=UDim2.new(1,0,0,50),Position=UDim2.new(0,0,1,-50),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollingDirection=Enum.ScrollingDirection.X})
+	local choiceButtons={}
+	local self={root=overlay,event=nil,previousEnabled=true,visuals={},reduced=false,logicalHeight=320}
+	local function circle(name,parent,size,x,y,color)
+		local object=make("Frame",name,parent,{Size=UDim2.fromOffset(size,size),Position=UDim2.fromOffset(x,y),BackgroundColor3=color,BorderSizePixel=0})
+		make("UICorner","Round",object,{CornerRadius=UDim.new(1,0)})
+		return object
+	end
+	local function clear()
+		for _,child in ipairs(canvas:GetChildren()) do if child~=scale then child:Destroy() end end
+		for _,child in ipairs(choices:GetChildren()) do child:Destroy() end
+		self.visuals={};choiceButtons={}
+	end
+	local function build(event)
+		clear()
+		self.logicalHeight=if event.kind=="duck" then math.max(320,math.ceil(event.slotCount/4)*102+10) else 320
+		canvas.Size=UDim2.fromOffset(600,self.logicalHeight)
+		if event.kind=="coin" then
+			local coin=circle("Coin",canvas,242,179,39,colors.cyan)
+			coin.ClipsDescendants=true
+			make("UIStroke","Rim",coin,{Color=colors.ice,Thickness=7})
+			local face=label("CoinFace",coin,"",UDim2.fromScale(1,1),UDim2.fromOffset(0,0),48)
+			face.TextColor3,face.TextXAlignment=colors.navy,Enum.TextXAlignment.Center
+			self.visuals.coin,self.visuals.face=coin,face
+		elseif event.kind=="duck" then
+			self.visuals.ducks={}
+			for index=1,event.slotCount do
+				local x,y=44+(index-1)%4*140,10+math.floor((index-1)/4)*102
+				local card=make("Frame","Duck"..index,canvas,{Size=UDim2.fromOffset(120,90),Position=UDim2.fromOffset(x,y),BackgroundColor3=colors.blue,BorderSizePixel=0})
+				make("UICorner","Corners",card,{CornerRadius=UDim.new(0,18)})
+				local body=circle("Body",card,36,40,18,colors.cyan);body.Size=UDim2.fromOffset(42,30)
+				circle("Head",card,20,67,7,colors.ice)
+				circle("Eye",card,4,78,11,colors.navy)
+				local value=label("Value",card,"",UDim2.new(1,0,0,34),UDim2.fromOffset(0,52),22);value.TextXAlignment=Enum.TextXAlignment.Center
+				self.visuals.ducks[index]={card=card,label=value,x=x,y=y}
+			end
+		elseif event.kind=="pacinki" then
+			for row=1,7 do for column=1,9 do circle("Peg",canvas,7,44+column*50+(row%2)*22,10+row*33,colors.ice) end end
+			self.visuals.slots={}
+			for index=1,event.slotCount do
+				local slot=make("Frame","Slot"..index,canvas,{Size=UDim2.fromOffset(550/event.slotCount-2,34),Position=UDim2.fromOffset(25+(index-1)*550/event.slotCount,280),BackgroundColor3=if index%2==0 then colors.cyan else colors.blue,BorderSizePixel=0})
+				self.visuals.slots[index]=slot
+			end
+			self.visuals.ball=circle("DropBall",canvas,18,291,0,colors.cyan)
+		elseif event.kind=="crazy" then
+			local wheel=circle("Wheel",canvas,284,158,18,colors.blue)
+			make("UIStroke","Rim",wheel,{Color=colors.cyan,Thickness=5})
+			for index=1,64 do
+				local angle=(index-1)*math.pi*2/64
+				local tick=make("Frame","Sector"..index,wheel,{Size=UDim2.fromOffset(4,16),Position=UDim2.fromOffset(140+math.sin(angle)*127,134-math.cos(angle)*127),Rotation=(index-1)*360/64,BackgroundColor3=if index%2==0 then colors.ice else colors.cyan,BorderSizePixel=0})
+				if index%4==1 then
+					local number=label("Index",wheel,tostring(index),UDim2.fromOffset(28,18),UDim2.fromOffset(128+math.sin(angle)*102,133-math.cos(angle)*102),12)
+					number.TextXAlignment=Enum.TextXAlignment.Center
+				end
+			end
+			local center=circle("Hub",canvas,132,234,94,colors.navy)
+			local hub=label("SelectedSpot",center,"64 SECTORS\n3 PRIZE SPOTS",UDim2.fromScale(1,1),UDim2.fromOffset(0,0),17);hub.TextXAlignment=Enum.TextXAlignment.Center
+			self.visuals.pointers={}
+			for index,offset in ipairs(event.pointerOffsets or {}) do
+				local angle=offset*math.pi*2/64
+				local pointer=circle("PrizePointer"..index,canvas,28,286+math.sin(angle)*148,146-math.cos(angle)*148,colors.blue)
+				local text=label("Spot",pointer,tostring(index),UDim2.fromScale(1,1),UDim2.fromOffset(0,0),18);text.TextXAlignment=Enum.TextXAlignment.Center
+				self.visuals.pointers[index]=pointer
+			end
+			self.visuals.wheel,self.visuals.hub=wheel,hub
+		end
+		for index=1,event.choiceCount do
+			local width=if event.kind=="crazy" then 126 else 72
+			choiceButtons[index]=button("Choice"..index,choices,(if event.kind=="crazy" then "Prize spot " else "Duck ")..index,UDim2.fromOffset(width-6,44),UDim2.fromOffset((index-1)*width,0),function()
+				local current=self.event
+				if current and current.eligible and current.phase=="Choice" and not current.choice and workspace:GetServerTimeNow()<current.deadline then request("BonusChoice",current.id,index) end
+			end)
+		end
+		choices.CanvasSize=UDim2.fromOffset(event.choiceCount*(if event.kind=="crazy" then 126 else 72),50)
+	end
+	function self:resize()
+		local viewport=normalGui.AbsoluteSize
+		local landscape=viewport.X>viewport.Y
+		local side=if touch and landscape then 150 else 16
+		local footer=if not touch then 16 elseif landscape then 72 else math.min(210,viewport.Y*0.28)
+		local width,height=math.max(180,viewport.X-side*2),math.max(200,viewport.Y-footer-12)
+		safe.Position,safe.Size=UDim2.fromOffset(side,12),UDim2.fromOffset(width,height)
+		local compact=height<360
+		local showValues=compact and self.event and (self.event.phase=="Preview" or self.event.phase=="Choice")
+		stage.Visible=not showValues
+		details.Visible=not compact or showValues
+		local visualHeight=math.max(56,math.min(320,height-244))
+		stage.Position,stage.Size=UDim2.fromOffset(0,72),UDim2.new(1,0,0,visualHeight)
+		scale.Scale=math.min(width/600,visualHeight/self.logicalHeight)
+		details.Position,details.Size=UDim2.fromOffset(0,if compact then 72 else 80+visualHeight),UDim2.new(1,0,0,if compact then height-192 else math.max(42,height-visualHeight-198))
+	end
+	function self:accept(event,reduced)
+		self.reduced=reduced==true
+		if not event or not event.eligible then
+			if self.event then normalGui.Enabled=self.previousEnabled end
+			self.event=nil;overlay.Enabled=false;return
+		end
+		if not self.event then self.previousEnabled=normalGui.Enabled end
+		if not self.event or self.event.id~=event.id then build(event) end
+		self.event=event;normalGui.Enabled=false;overlay.Enabled=true
+		title.Text=event.name
+		local values={}
+		for index,value in ipairs(event.values) do table.insert(values,index..": "..value.."×") end
+		detailText.Text=if #values>0 then table.concat(values,"   ·   ") else "Multipliers covered until the reveal."
+		-- Keep all 64 values readable in a scrollable list, independent of wheel scale.
+		if event.kind=="crazy" or event.slotCount>12 then
+			local rows={};for index,value in ipairs(values) do table.insert(rows,value) end
+			detailText.Text=table.concat(rows,"\n")
+		end
+		local detailHeight=if event.kind=="crazy" or event.slotCount>12 then #values*22 else math.max(60,math.ceil(#values/3)*24)
+		detailText.Size,details.CanvasSize=UDim2.new(1,-8,0,detailHeight),UDim2.fromOffset(0,detailHeight)
+		for index,choice in ipairs(choiceButtons) do
+			choice.Active=event.phase=="Choice" and not event.choice
+			choice.BackgroundColor3=if event.choice==index then colors.cyan else colors.blue
+			choice.TextColor3=if event.choice==index then colors.navy else colors.ice
+		end
+		choices.Visible=event.phase=="Choice"
+		local result=event.result
+		resultText.Text=if event.phase=="Reveal" then
+			(if result and result.committed then result.multiplier.."× · "..(if result.pesos>0 then "+" else "")..result.pesos.." Pesos" else "Result could not be confirmed. No payout is shown.")
+			elseif event.phase=="Choice" then (if event.choice then "Choice locked: "..event.choice else "Choose once · the server chooses if you do not respond")
+			elseif event.phase=="Preview" then "Remember the multipliers before they are covered"
+			elseif event.phase=="Resolving" then "Confirming the outcome…" else "Watch the shared bonus unfold"
+		self:resize();self:update(workspace:GetServerTimeNow())
+	end
+	function self:update(now)
+		local event=self.event;if not event then return end
+		local remaining=math.max(0,math.ceil(event.deadline-now))
+		phase.Text=event.phase..(if event.phase=="Resolving" then "" else " · "..remaining.."s")
+		local duration=math.max(0.001,event.deadline-event.startedAt)
+		local t=math.clamp((now-event.startedAt)/duration,0,1)
+		local moving=event.phase=="Animate" and not self.reduced
+		local result=event.result
+		if event.kind=="coin" then
+			local width=if moving then math.max(14,math.abs(math.cos(t*math.pi*8))*242) else 242
+			self.visuals.coin.Size,self.visuals.coin.Position=UDim2.fromOffset(width,242),UDim2.fromOffset(300-width/2,39)
+			local index=if result and (event.phase=="Reveal" or not moving or t>=1) then result.index elseif moving then math.floor(t*8)%2+1 else 1
+			self.visuals.face.Text=(event.values[index] or "?").."×"
+		elseif event.kind=="duck" then
+			for index,duck in ipairs(self.visuals.ducks) do
+				local shuffle=event.phase=="Shuffle" and not self.reduced
+				duck.card.Position=UDim2.fromOffset(duck.x+(if shuffle then math.sin(t*math.pi*4+index)*24 else 0),duck.y+(if shuffle then math.sin(t*math.pi*6+index)*8 else 0))
+				duck.label.Text=if event.values[index] then event.values[index].."×" else "?"
+				duck.card.BackgroundColor3=if event.phase=="Reveal" and result and result.index==index then colors.cyan else colors.blue
+			end
+		elseif event.kind=="pacinki" then
+			local index=result and result.index
+			local target=if index then 25+(index-0.5)*550/event.slotCount-9 else 291
+			local progress=if event.phase=="Reveal" then 1 elseif moving then t elseif event.phase=="Animate" then 1 else 0
+			local x=291+(target-291)*progress+(if moving then math.sin(progress*math.pi*14)*22*(1-progress) else 0)
+			self.visuals.ball.Position=UDim2.fromOffset(x,progress*288)
+		elseif event.kind=="crazy" then
+			local target=if result and result.stopIndex then -(result.stopIndex-1)*360/64 else 0
+			for index,pointer in ipairs(self.visuals.pointers) do pointer.BackgroundColor3=if event.choice==index then colors.cyan else colors.blue end
+			local rotation=if moving then (1440+target)*(1-(1-t)^3) elseif event.phase=="Reveal" or event.phase=="Animate" then target else 0
+			self.visuals.wheel.Rotation=rotation
+			self.visuals.hub.Text=if event.choice then "PRIZE SPOT "..event.choice..(if event.phase=="Reveal" and result and result.index then "\nSECTOR "..result.index else "") else "64 SECTORS\n3 PRIZE SPOTS"
+		end
+	end
+	function self:isActive() return self.event~=nil end
+	normalGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() self:resize() end)
+	return self
+end
+return Presentation
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="32">
         <Properties>
           <string name="Name">CardPanel</string>
           <string name="Source"><![CDATA[-- Horizontal main cards and an adjacent 2x2 bonus group, in one bottom-center tray.
@@ -1694,12 +2264,13 @@ local Panel = {}
 function Panel.new(gui, ui, config, layout, request)
 	local frame, label, button, make = ui.frame, ui.label, ui.button, ui.make
 	local colors = ui.colors
-	local tray = frame("CardPanel", gui, UDim2.fromOffset(930,334), UDim2.new(0.5,0,1,-78))
+	local tray = frame("CardPanel", gui, UDim2.fromOffset(930,392), UDim2.new(0.5,0,1,-78))
 	tray.AnchorPoint = Vector2.new(0.5,1)
-	local scroll = make("ScrollingFrame","CardScroll",tray,{Position=UDim2.fromOffset(10,50),Size=UDim2.new(1,-20,1,-60),
+	local scroll = make("ScrollingFrame","CardScroll",tray,{Position=UDim2.fromOffset(10,90),Size=UDim2.new(1,-20,1,-100),
 		BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=5,ScrollingDirection=Enum.ScrollingDirection.XY,
-		CanvasSize=UDim2.fromOffset(930,276)})
+		CanvasSize=UDim2.fromOffset(930,302)})
 	local cards, bonusRows, geometry = {}, {}, nil
+	local patternLabel=label("ActivePatterns",tray,"Pattern schedule awaiting confirmation",UDim2.new(1,-20,0,38),UDim2.fromOffset(10,46),12)
 	local heading=label("Title",tray,"YOUR CARDS",UDim2.fromOffset(110,44),UDim2.fromOffset(10,0),14)
 	button("MainNavigation",tray,"Main",UDim2.fromOffset(64,40),UDim2.fromOffset(122,3),function() scroll.CanvasPosition=Vector2.new(0,0) end)
 	button("BonusNavigation",tray,"Bonus →",UDim2.fromOffset(86,40),UDim2.fromOffset(192,3),function()
@@ -1708,14 +2279,15 @@ function Panel.new(gui, ui, config, layout, request)
 	local function createCard(index)
 		local card=frame("MainCard"..index,scroll,UDim2.fromOffset(layout.CardWidth,layout.CardHeight),UDim2.fromOffset((index-1)*(layout.CardWidth+layout.Gap),0))
 		local title=label("Multiplier",card,"Card "..index.." · awaiting deal",UDim2.new(1,-16,0,28),UDim2.fromOffset(8,2),15)
-		local cells={}
+		local cells,strokes={},{}
 		for cellIndex=1,25 do
 			cells[cellIndex]=button("Cell"..cellIndex,card,"—",UDim2.fromOffset(44,44),
 				UDim2.fromOffset(8+(cellIndex-1)%5*46,32+math.floor((cellIndex-1)/5)*46),function() request("Mark",index,cellIndex) end)
+					strokes[cellIndex]=make("UIStroke","PatternHighlight",cells[cellIndex],{Color=colors.cyan,Thickness=3,Enabled=false,ApplyStrokeMode=Enum.ApplyStrokeMode.Border})
 		end
-		local rewardNote=label("RewardNote",card,"Pattern rewards pending",UDim2.new(1,-16,0,14),UDim2.fromOffset(8,261),11)
+		local rewardNote=label("RewardNote",card,"Pattern rewards pending",UDim2.new(1,-16,0,38),UDim2.fromOffset(8,262),11)
 		rewardNote.TextColor3=colors.navy
-		return {frame=card,title=title,cells=cells}
+		return {frame=card,title=title,cells=cells,strokes=strokes,note=rewardNote}
 	end
 	for index=1,config.Main.Count do cards[index]=createCard(index) end
 	local group=frame("BonusGroup",scroll,UDim2.fromOffset(layout.BonusWidth,layout.CardHeight),UDim2.fromOffset(config.Main.Count*(layout.CardWidth+layout.Gap),0))
@@ -1724,8 +2296,12 @@ function Panel.new(gui, ui, config, layout, request)
 		local row=frame(definition.id,group,UDim2.fromOffset(192,132),UDim2.fromOffset((index-1)%2*204,math.floor((index-1)/2)*144))
 		local title=label("Title",row,definition.name,UDim2.new(1,-16,0,26),UDim2.fromOffset(8,4),16)
 		local numbers=label("Numbers",row,"Waiting for cards",UDim2.new(1,-16,0,52),UDim2.fromOffset(8,32),20)
+		local cells={}
+		for cellIndex=1,definition.count do
+			cells[cellIndex]=button("Cell"..cellIndex,row,"—",UDim2.fromOffset(44,44),UDim2.fromOffset((192-(definition.count*46-2))/2+(cellIndex-1)*46,36),function() request("MarkBonus",definition.id,cellIndex) end)
+		end
 		local progress=label("Progress",row,"",UDim2.new(1,-16,0,38),UDim2.fromOffset(8,89),13)
-		bonusRows[definition.id]={title=title,numbers=numbers,progress=progress}
+		bonusRows[definition.id]={title=title,numbers=numbers,progress=progress,cells=cells}
 	end
 	local self={root=tray}
 	function self:resize(width,height,touch)
@@ -1736,19 +2312,25 @@ function Panel.new(gui, ui, config, layout, request)
 		return geometry
 	end
 	function self:setStatus(text) heading.Text=text end
-	function self:render(snapshot,cardColor,markerColor)
+	function self:render(snapshot,cardColor,markerColor,markerGlyph)
+		markerGlyph=markerGlyph or "✓"
+		patternLabel.Text=(snapshot.patternDescription or "Pattern schedule awaiting confirmation").."\n◇ start · • called · "..markerGlyph.." marked"
 		heading.Text="Ball "..tostring(snapshot.history[#snapshot.history] or "—").." · "..#snapshot.history.."/20"
 		for index,view in ipairs(cards) do
 			local data=snapshot.cards[index]
-			view.title.Text=if data then "Card "..index.."  ·  "..data.multiplier.."×" else "Card "..index.." · next round"
+			view.title.Text=if data then "Card "..index.." · 15 Pesos / line" else "Card "..index.." · next round"
 			view.frame.BackgroundColor3=cardColor
 			view.title.TextColor3=colors.navy
+			local completed=data and data.completed or {}
+			view.note.Text=if #completed>0 then "COMPLETE · "..table.concat(completed,", ").." · pays at round results" else "15 Pesos / line · cell multipliers multiply"
 			for cellIndex,cell in ipairs(view.cells) do
 				local entry=data and data.cells[cellIndex]
-				local prefix=if entry and entry.marked then "✓" elseif entry and entry.available then "•" else ""
+				local prefix=if entry and entry.premarked then "◇" elseif entry and entry.marked then markerGlyph elseif entry and entry.available then "•" else ""
 				cell.Text=if entry then (if entry.number==0 then "FREE" else prefix..entry.number) else "—"
-				cell.TextSize=18
-				cell.BackgroundColor3=if entry and entry.marked then markerColor elseif entry and entry.available then colors.cyan else colors.blue
+				if entry and entry.multiplier then cell.Text..="\n"..entry.multiplier.."×" end
+				cell.TextSize=if entry and entry.multiplier then 14 else 18
+				view.strokes[cellIndex].Enabled=data~=nil and data.highlight~=nil and data.highlight[cellIndex]==true
+				cell.BackgroundColor3=if entry and entry.premarked then colors.ice elseif entry and entry.marked then markerColor elseif entry and entry.available then colors.cyan else colors.blue
 				cell.TextColor3=if entry and (entry.marked or entry.available) then colors.navy else colors.ice
 				cell.Active=entry~=nil and entry.available and not entry.marked
 			end
@@ -1756,8 +2338,16 @@ function Panel.new(gui, ui, config, layout, request)
 		for _,bonus in ipairs(snapshot.bonuses) do
 			local row,numbers=bonusRows[bonus.id],{}
 			for _,entry in ipairs(bonus.cells) do table.insert(numbers,(if entry.marked then "✓" else "")..entry.number) end
-			row.numbers.Text=if #numbers>0 then table.concat(numbers,"  ") else "Awaiting numbers"
-			row.progress.Text=if bonus.qualified then "✓ QUALIFIED\nResolution pending" elseif bonus.target==0 then "Qualification count pending" elseif #bonus.cells==0 then "Joining next round" else bonus.progress.." / "..bonus.target.." matched"
+			row.numbers.Text=if #numbers>0 then "" else "Awaiting numbers"
+			for index,cell in ipairs(row.cells) do
+				local entry=bonus.cells[index]
+				cell.Text=if entry then (if entry.premarked then "◇" elseif entry.marked then markerGlyph elseif entry.available then "•" else "")..entry.number else "—"
+				cell.TextSize=17
+				cell.BackgroundColor3=if entry and entry.premarked then colors.ice elseif entry and entry.marked then markerColor elseif entry and entry.available then colors.cyan else colors.blue
+				cell.TextColor3=if entry and (entry.marked or entry.available) then colors.navy else colors.ice
+				cell.Active=entry~=nil and entry.available and not entry.marked
+			end
+			row.progress.Text=if bonus.qualified then "✓ QUALIFIED\nResolution pending" elseif bonus.target==0 then "Qualification count pending" elseif #bonus.cells==0 then "Joining next round" else bonus.progress.." / "..bonus.target.." marked"
 			row.title.TextColor3=if bonus.qualified then colors.cyan else colors.ice
 		end
 	end
@@ -1767,7 +2357,7 @@ return Panel
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="30">
+      <Item class="ModuleScript" referent="33">
         <Properties>
           <string name="Name">FeaturePanels</string>
           <string name="Source"><![CDATA[local Marketplace=game:GetService("MarketplaceService")
@@ -1775,10 +2365,13 @@ local Players=game:GetService("Players")
 local TextChatService=game:GetService("TextChatService")
 local Shared=game:GetService("ReplicatedStorage"):WaitForChild("Cloudpop")
 local PetBuilder=require(Shared.PetBuilder)
+local PremiumShop=require(script.Parent.PremiumShop)
 local Features={}
 function Features.new(body,settings,ui,config,request)
 	local self={pages={},heights={Pets=580,Chest=270,Records=820},state=nil,seenSerial=0,queue={},nextMessage=0,price=nil,priceId=nil}
 	local make,label,button=ui.make,ui.label,ui.button
+	local premium=PremiumShop.new(body,ui,config,request)
+	self.pages.Robux=premium.root;self.heights.Robux=premium.height
 	local function page(name,height)
 		local frame=make("Frame",name,body,{Size=UDim2.new(1,-6,0,height),BackgroundTransparency=1,Visible=false})
 		self.pages[name]=frame;return frame
@@ -1835,6 +2428,7 @@ function Features.new(body,settings,ui,config,request)
 	end
 	function self:render(state)
 		self.state=state
+		premium:render(state)
 		for _,item in ipairs(config.Catalog) do
 			if item.category=="pet" then
 				petButtons[item.id].Text=item.name.." · "..(if state.equipped.pet==item.id then "Equipped" elseif state.owned[item.id] then "Equip · owned" else item.price.." Pesos")
@@ -1899,7 +2493,7 @@ return Features
 ]]></string>
         </Properties>
       </Item>
-      <Item class="LocalScript" referent="31">
+      <Item class="LocalScript" referent="34">
         <Properties>
           <string name="Name">GameClient</string>
           <string name="Source"><![CDATA[-- Compact HUD. Roblox owns the avatar, camera, chat, movement and backpack controls.
@@ -1960,6 +2554,7 @@ local function initialize()
 	-- Audio receives only the consenting-human recording manifest; there is no speech synthesis.
 	audio = require(waitFor(gui, "AudioController")).new(Config.Audio, manifest)
 	local state, panelOpen, auxiliary = nil, not touch, nil
+	local cinematic
 	local previousRound, previousCount, previousQualified = nil, 0, {}
 	local function request(name, a, b, c)
 		action:FireServer(name, a, b, c, if state then state.roundId else 0)
@@ -1998,6 +2593,7 @@ local function initialize()
 	local compactPresentation=false
 	button("Close",aux,"×",UDim2.fromOffset(44,40),UDim2.new(1,-50,0,2),function() auxiliary=nil; resize() end)
 	local function openCards()
+		if cinematic and cinematic:isActive() then return end
 		panelOpen,auxiliary=true,nil
 		request("Participate")
 		resize()
@@ -2029,15 +2625,16 @@ local function initialize()
 	local saveLabel=label("SaveStatus",settings,"",UDim2.new(1,0,0,56),UDim2.fromOffset(0,245),12)
 	label("Credits",settings,"Created by Kikapucchino",UDim2.new(1,0,0,28),UDim2.fromOffset(0,308),13)
 	label("AudioSlots",settings,"Human voice and music recordings are awaiting licensed audio.",UDim2.new(1,0,0,54),UDim2.fromOffset(0,342),12)
+	cinematic=require(waitFor(gui,"BonusPresentation")).new(gui,{make=make,label=label,button=button,colors=colors},request,touch)
 	local features=require(waitFor(gui,"FeaturePanels")).new(body,settings,{make=make,label=label,button=button},Config,request)
 	require(waitFor(gui,"PetEffects")).start(function() return state and state.settings.reducedMotion end)
-	for index,name in ipairs({"Looks","Pets","Settings","Chest","Records"}) do
-		button("Tab"..name,aux,name,UDim2.new(0.2,-4,0,44),UDim2.new((index-1)*0.2,2,0,46),function() auxiliary=name;body.CanvasPosition=Vector2.new(0,0);resize() end).TextSize=11
+	for index,name in ipairs({"Looks","Pets","Robux","Settings","Chest","Records"}) do
+		button("Tab"..name,aux,name,UDim2.new(1/6,-4,0,44),UDim2.new((index-1)/6,2,0,46),function() auxiliary=name;body.CanvasPosition=Vector2.new(0,0);resize() end).TextSize=11
 	end
 	local cosmeticButtons={}
 	local index=0
 	for _,item in ipairs(Config.Catalog) do
-		if item.category=="pet" then continue end
+		if item.category=="pet" or item.payment=="Robux" then continue end
 		index+=1
 		cosmeticButtons[item.id]=button(item.id,looks,item.name,UDim2.new(1,0,0,48),UDim2.fromOffset(0,(index-1)*56),function() request("Cosmetic",item.id) end)
 	end
@@ -2071,7 +2668,8 @@ local function initialize()
 		local recent={}
 		for index=math.max(1,#state.history-5),#state.history do table.insert(recent,tostring(state.history[index])) end
 		history.Text=if #recent>0 then "Recent · "..table.concat(recent," · ") else "Fresh pool · 1–60"
-		cardPanel:render(state,cosmeticColor("card",colors.ice),cosmeticColor("marker",colors.cyan))
+		local markerItem=Economy.find(Config.Catalog,state.equipped.marker)
+		cardPanel:render(state,cosmeticColor("card",colors.ice),cosmeticColor("marker",colors.cyan),markerItem and markerItem.glyph)
 		reduced.Text="Reduced motion · "..(if state.settings.reducedMotion then "On" else "Off")
 		for key,view in pairs(volumes) do
 			local title=if key=="musicVolume" then "Music" elseif key=="voiceVolume" then "Voice" else "Effects"
@@ -2082,7 +2680,7 @@ local function initialize()
 		saveLabel.Text=(state.saveStatus or "")..(if state.practice then "\nStudio practice · progress is temporary" else "")
 		features:render(state)
 		for _,item in ipairs(Config.Catalog) do
-			if item.category=="pet" then continue end
+			if item.category=="pet" or item.payment=="Robux" then continue end
 			local suffix=if state.equipped[item.category]==item.id then "Equipped" elseif state.owned[item.id] then "Equip" else item.price.." Pesos"
 			cosmeticButtons[item.id].Text=item.name.." · "..suffix
 		end
@@ -2113,13 +2711,17 @@ local function initialize()
 		end
 		previousRound,previousCount,state=snapshot.roundId,#snapshot.history,snapshot
 		audio:setVolumes(state.settings)
-		audio:setTrack(state.activeBonus or "lobby")
+		audio:setScene(state.bonusPresentation)
+		cinematic:accept(state.bonusPresentation,state.settings.reducedMotion)
 		-- The same authoritative snapshot reveals the ball and queues its matching voice/subtitle.
 		audio:announce(state.announcement,workspace:GetServerTimeNow())
 		effects:update(state)
 		if state.notice then notify(state.notice) end
 		if status then status.Visible=false end
 		render()
+	end)
+	game:GetService("ProximityPromptService").PromptTriggered:Connect(function(prompt)
+		if prompt.Name=="RobuxShopPrompt" and not cinematic:isActive() then auxiliary="Robux";body.CanvasPosition=Vector2.new(0,0);resize() end
 	end)
 	local player=Players.LocalPlayer
 	local function bindCharacter(character)
@@ -2133,6 +2735,7 @@ local function initialize()
 	RunService.RenderStepped:Connect(function()
 		local now=workspace:GetServerTimeNow()
 		features:update(now)
+		cinematic:update(now)
 		if auxiliary=="Records" then body.CanvasSize=UDim2.fromOffset(0,math.max(820,246+features.recordsText.AbsoluteSize.Y+12)) end
 		if state then
 			local seconds=math.max(0,math.ceil(state.deadline-now))
@@ -2166,7 +2769,7 @@ end
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="32">
+      <Item class="ModuleScript" referent="35">
         <Properties>
           <string name="Name">PetEffects</string>
           <string name="Source"><![CDATA[-- Local visual interpolation of server-owned pets; no per-frame network updates or physics.
@@ -2204,7 +2807,71 @@ return Pets
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="33">
+      <Item class="ModuleScript" referent="36">
+        <Properties>
+          <string name="Name">PremiumShop</string>
+          <string name="Source"><![CDATA[local Marketplace=game:GetService("MarketplaceService")
+local Players=game:GetService("Players")
+local Shop={}
+function Shop.new(parent,ui,config,request)
+	local root=ui.make("Frame","Robux",parent,{Size=UDim2.new(1,-6,0,740),BackgroundTransparency=1,Visible=false})
+	local self={root=root,state=nil,rows={}}
+	local items={}
+	for _,item in ipairs(config.Catalog) do if item.payment=="Robux" then table.insert(items,item) end end
+	table.insert(items,{id="auto",name="Auto Mark",description="Permanent toggle for both main and bonus cards. Marks called matches; cards, multipliers and draws are unchanged."})
+	self.height=#items*198+146
+	root.Size=UDim2.new(1,-6,0,self.height)
+	for index,item in ipairs(items) do
+		local y=(index-1)*198
+		local preview=ui.label(item.id.."Preview",root,item.glyph or "✓",UDim2.fromOffset(44,44),UDim2.fromOffset(0,y),32)
+		if item.color then preview.TextColor3=Color3.fromRGB(table.unpack(item.color)) end
+		ui.label(item.id.."Title",root,item.name,UDim2.new(1,-52,0,44),UDim2.fromOffset(52,y),16)
+		ui.label(item.id.."Description",root,item.description,UDim2.new(1,0,0,64),UDim2.fromOffset(0,y+46),13)
+		local status=ui.label(item.id.."Status",root,"Unavailable",UDim2.new(1,0,0,32),UDim2.fromOffset(0,y+110),12)
+		local row={item=item,status=status}
+		row.button=ui.button("Premium"..item.id,root,"Unavailable",UDim2.new(1,0,0,44),UDim2.fromOffset(0,y+146),function()
+			local state=self.state;if not state then return end
+			local pass=if item.id=="auto" then state.pass else state.premium and state.premium[item.id]
+			if not pass then return end
+			if pass.owned then
+				if item.id=="auto" then request("Setting","autoMark",not state.settings.autoMark) else request("PremiumEquip",item.id) end
+			elseif pass.configured and row.price and row.passId==pass.id then
+				pcall(function() Marketplace:PromptGamePassPurchase(Players.LocalPlayer,pass.id) end)
+			end
+		end)
+		self.rows[item.id]=row
+	end
+	ui.button("RefreshPremium",root,"Refresh ownership and prices",UDim2.new(1,0,0,44),UDim2.fromOffset(0,#items*198+10),function()
+		for _,row in pairs(self.rows) do row.passId=nil;row.price=nil end
+		request("RefreshPass")
+	end)
+	ui.label("BonusOffer",root,"Three-bonus offer unavailable. Its rules and purchase setup are not confirmed.",UDim2.new(1,0,0,74),UDim2.fromOffset(0,#items*198+62),13)
+	function self:render(state)
+		self.state=state
+		for id,row in pairs(self.rows) do
+			local pass=if id=="auto" then state.pass else state.premium and state.premium[id]
+			if not pass then continue end
+			if pass.configured and row.passId~=pass.id then
+				row.passId,row.price=pass.id,nil
+				task.spawn(function()
+					local ok,info=pcall(function() return Marketplace:GetProductInfoAsync(pass.id,Enum.InfoType.GamePass) end)
+					if row.passId~=pass.id then return end
+					row.price=if ok and info.IsForSale and type(info.PriceInRobux)=="number" then info.PriceInRobux else nil
+					self:render(self.state)
+				end)
+			end
+			row.status.Text=pass.status..(if id=="auto" and row.price and row.price~=60 then " · price differs from intended 60 Robux" else "")
+			row.button.Text=if pass.owned then (if id=="auto" then "Auto Mark · "..(if state.settings.autoMark then "On" else "Off") else "Equip · owned")
+				elseif row.price then "Buy · "..row.price.." Robux" else "Unavailable · no platform price"
+		end
+	end
+	return self
+end
+return Shop
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="37">
         <Properties>
           <string name="Name">WorldEffects</string>
           <string name="Source"><![CDATA[-- Cosmetic-only local animation: sixteen anchored balls, capped at 30 updates/sec.
@@ -2254,11 +2921,11 @@ function Effects.new()
 		local time = if moving then now else 0
 		for index, ball in ipairs(balls) do
 			local angle = index * math.pi / 8 + time * (0.6 + index % 3 * 0.1)
-			ball.Position = Vector3.new(math.cos(angle) * 3, 8.7 + math.sin(time * 1.8 + index * 1.7) * 2.1, -24 + math.sin(angle) * 3)
+			ball.Position = Vector3.new(math.cos(angle) * 3, 8.7 + math.sin(time * 1.8 + index * 1.7) * 2.1, -40 + math.sin(angle) * 3)
 		end
 		if emerged then
 			local progress = math.clamp((now - drawAt) / 0.8, 0, 1)
-			emerged.Position = Vector3.new(0, 6 + (if reduced then 0 else math.sin(progress * math.pi) * 3), -17)
+			emerged.Position = Vector3.new(0, 6 + (if reduced then 0 else math.sin(progress * math.pi) * 3), -33)
 		end
 	end)
 	return self
@@ -2267,7 +2934,7 @@ return Effects
 ]]></string>
         </Properties>
       </Item>
-      <Item class="TextLabel" referent="34">
+      <Item class="TextLabel" referent="38">
         <Properties>
           <string name="Name">StartupStatus</string>
           <Color3 name="BackgroundColor3">
@@ -2288,7 +2955,7 @@ return Effects
             <YS>0</YS>
             <YO>100</YO>
           </UDim2>
-          <string name="Text">CLOUDPOP COMMONS · build 0.4.0
+          <string name="Text">CLOUDPOP COMMONS · build 0.5.0
 Opening your lobby…</string>
           <Color3 name="TextColor3">
             <R>0.886</R>
@@ -2302,14 +2969,14 @@ Opening your lobby…</string>
       </Item>
     </Item>
   </Item>
-  <Item class="TextChatService" referent="35">
+  <Item class="TextChatService" referent="39">
     <Properties>
       <string name="Name">TextChatService</string>
       <token name="ChatVersion">1</token>
       <bool name="CreateDefaultTextChannels">true</bool>
     </Properties>
   </Item>
-  <Item class="Workspace" referent="36">
+  <Item class="Workspace" referent="40">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-100</float>

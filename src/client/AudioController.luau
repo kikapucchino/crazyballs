@@ -63,8 +63,7 @@ function Audio.new(config, manifest)
 		if changed then transition(targetVolume()) end
 	end
 	function self:setTrack(key)
-		-- With an unfilled bonus slot, a supplied lobby track continues rather than cutting to silence.
-		if asset(config.Music[key]) == "" then key = "lobby" end
+		-- A missing bonus/intro asset stays silent; never substitute the lobby recording.
 		if self.track == key then return end
 		self.track, self.generation, switching = key, self.generation + 1, true
 		local generation = self.generation
@@ -72,12 +71,15 @@ function Audio.new(config, manifest)
 		task.delay(0.26, function()
 			if generation ~= self.generation then return end
 			music:Stop()
-			music.SoundId, switching = asset(config.Music[key]), false
+			music.SoundId, music.Looped, switching = asset(config.Music[key]), key~="bonusIntro", false
 			if music.SoundId == "" then return end -- Missing licensed track: do not invent one.
 			music.Volume = 0
 			music:Play()
 			transition(targetVolume())
 		end)
+	end
+	function self:setScene(presentation)
+		self:setTrack(if presentation then (if presentation.phase=="Intro" then "bonusIntro" else presentation.kind) else "lobby")
 	end
 	function self:play(key)
 		local id = asset(config.SFX[key])

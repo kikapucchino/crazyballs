@@ -56,6 +56,7 @@ local function initialize()
 	-- Audio receives only the consenting-human recording manifest; there is no speech synthesis.
 	audio = require(waitFor(gui, "AudioController")).new(Config.Audio, manifest)
 	local state, panelOpen, auxiliary = nil, not touch, nil
+	local cinematic
 	local previousRound, previousCount, previousQualified = nil, 0, {}
 	local function request(name, a, b, c)
 		action:FireServer(name, a, b, c, if state then state.roundId else 0)
@@ -94,6 +95,7 @@ local function initialize()
 	local compactPresentation=false
 	button("Close",aux,"×",UDim2.fromOffset(44,40),UDim2.new(1,-50,0,2),function() auxiliary=nil; resize() end)
 	local function openCards()
+		if cinematic and cinematic:isActive() then return end
 		panelOpen,auxiliary=true,nil
 		request("Participate")
 		resize()
@@ -125,15 +127,16 @@ local function initialize()
 	local saveLabel=label("SaveStatus",settings,"",UDim2.new(1,0,0,56),UDim2.fromOffset(0,245),12)
 	label("Credits",settings,"Created by Kikapucchino",UDim2.new(1,0,0,28),UDim2.fromOffset(0,308),13)
 	label("AudioSlots",settings,"Human voice and music recordings are awaiting licensed audio.",UDim2.new(1,0,0,54),UDim2.fromOffset(0,342),12)
+	cinematic=require(waitFor(gui,"BonusPresentation")).new(gui,{make=make,label=label,button=button,colors=colors},request,touch)
 	local features=require(waitFor(gui,"FeaturePanels")).new(body,settings,{make=make,label=label,button=button},Config,request)
 	require(waitFor(gui,"PetEffects")).start(function() return state and state.settings.reducedMotion end)
-	for index,name in ipairs({"Looks","Pets","Settings","Chest","Records"}) do
-		button("Tab"..name,aux,name,UDim2.new(0.2,-4,0,44),UDim2.new((index-1)*0.2,2,0,46),function() auxiliary=name;body.CanvasPosition=Vector2.new(0,0);resize() end).TextSize=11
+	for index,name in ipairs({"Looks","Pets","Robux","Settings","Chest","Records"}) do
+		button("Tab"..name,aux,name,UDim2.new(1/6,-4,0,44),UDim2.new((index-1)/6,2,0,46),function() auxiliary=name;body.CanvasPosition=Vector2.new(0,0);resize() end).TextSize=11
 	end
 	local cosmeticButtons={}
 	local index=0
 	for _,item in ipairs(Config.Catalog) do
-		if item.category=="pet" then continue end
+		if item.category=="pet" or item.payment=="Robux" then continue end
 		index+=1
 		cosmeticButtons[item.id]=button(item.id,looks,item.name,UDim2.new(1,0,0,48),UDim2.fromOffset(0,(index-1)*56),function() request("Cosmetic",item.id) end)
 	end
@@ -167,7 +170,8 @@ local function initialize()
 		local recent={}
 		for index=math.max(1,#state.history-5),#state.history do table.insert(recent,tostring(state.history[index])) end
 		history.Text=if #recent>0 then "Recent · "..table.concat(recent," · ") else "Fresh pool · 1–60"
-		cardPanel:render(state,cosmeticColor("card",colors.ice),cosmeticColor("marker",colors.cyan))
+		local markerItem=Economy.find(Config.Catalog,state.equipped.marker)
+		cardPanel:render(state,cosmeticColor("card",colors.ice),cosmeticColor("marker",colors.cyan),markerItem and markerItem.glyph)
 		reduced.Text="Reduced motion · "..(if state.settings.reducedMotion then "On" else "Off")
 		for key,view in pairs(volumes) do
 			local title=if key=="musicVolume" then "Music" elseif key=="voiceVolume" then "Voice" else "Effects"
@@ -178,7 +182,7 @@ local function initialize()
 		saveLabel.Text=(state.saveStatus or "")..(if state.practice then "\nStudio practice · progress is temporary" else "")
 		features:render(state)
 		for _,item in ipairs(Config.Catalog) do
-			if item.category=="pet" then continue end
+			if item.category=="pet" or item.payment=="Robux" then continue end
 			local suffix=if state.equipped[item.category]==item.id then "Equipped" elseif state.owned[item.id] then "Equip" else item.price.." Pesos"
 			cosmeticButtons[item.id].Text=item.name.." · "..suffix
 		end
@@ -209,13 +213,17 @@ local function initialize()
 		end
 		previousRound,previousCount,state=snapshot.roundId,#snapshot.history,snapshot
 		audio:setVolumes(state.settings)
-		audio:setTrack(state.activeBonus or "lobby")
+		audio:setScene(state.bonusPresentation)
+		cinematic:accept(state.bonusPresentation,state.settings.reducedMotion)
 		-- The same authoritative snapshot reveals the ball and queues its matching voice/subtitle.
 		audio:announce(state.announcement,workspace:GetServerTimeNow())
 		effects:update(state)
 		if state.notice then notify(state.notice) end
 		if status then status.Visible=false end
 		render()
+	end)
+	game:GetService("ProximityPromptService").PromptTriggered:Connect(function(prompt)
+		if prompt.Name=="RobuxShopPrompt" and not cinematic:isActive() then auxiliary="Robux";body.CanvasPosition=Vector2.new(0,0);resize() end
 	end)
 	local player=Players.LocalPlayer
 	local function bindCharacter(character)
@@ -229,6 +237,7 @@ local function initialize()
 	RunService.RenderStepped:Connect(function()
 		local now=workspace:GetServerTimeNow()
 		features:update(now)
+		cinematic:update(now)
 		if auxiliary=="Records" then body.CanvasSize=UDim2.fromOffset(0,math.max(820,246+features.recordsText.AbsoluteSize.Y+12)) end
 		if state then
 			local seconds=math.max(0,math.ceil(state.deadline-now))

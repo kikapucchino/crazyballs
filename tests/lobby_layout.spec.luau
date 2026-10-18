@@ -31,8 +31,8 @@ test("all three rooms have continuous floors and ceilings",function()
 	end
 end)
 test("exterior glazing and walls enclose all four sides without gaps",function()
-	for x=-48,106,2 do for y=2,24,2 do assert(solidAt(x,y,-40) and solidAt(x,y,40)) end end
-	for z=-40,40,2 do for y=2,24,2 do assert(solidAt(-48,y,z) and solidAt(106,y,z)) end end
+	for x=-64,144,2 do for y=2,26,2 do assert(solidAt(x,y,-56) and solidAt(x,y,56)) end end
+	for z=-56,56,2 do for y=2,26,2 do assert(solidAt(-64,y,z) and solidAt(144,y,z)) end end
 end)
 test("a 3.6-stud-wide route reaches both side rooms from the spawn",function()
 	local blockers={}
@@ -40,7 +40,7 @@ test("a 3.6-stud-wide route reaches both side rooms from the spawn",function()
 		if part.Position and part.Size and part.CanCollide~=false and part.Position.Y+part.Size.Y/2>2.5 and part.Position.Y-part.Size.Y/2<5 then table.insert(blockers,part) end
 	end
 	local function clear(x,z)
-		if x<=-46 or x>=104 or z<=-38 or z>=38 then return false end
+		if x<=-62 or x>=142 or z<=-54 or z>=54 then return false end
 		for _,part in ipairs(blockers) do
 			local p,s=part.Position,part.Size
 			if math.abs(x-p.X)<s.X/2+1.8 and math.abs(z-p.Z)<s.Z/2+1.8 then return false end
@@ -56,14 +56,29 @@ test("a 3.6-stud-wide route reaches both side rooms from the spawn",function()
 			if not seen[key] and clear(x,z) then seen[key]=true;table.insert(queue,{x,z}) end
 		end
 	end
-	assert(seen["78:-8"] and seen["92:18"],"Furniture or partitions block the rooms")
+	assert(seen["104:-10"] and seen["136:30"],"Furniture or partitions block the rooms")
 end)
 test("stage character, café, seats and second shared viewing screen exist",function()
 	local model=world.CloudpopWorkshop
 	assert(model.Presenter.Head and model.Presenter.Humanoid and model.CafeMenu and model.ViewingDisplay)
 	local seats=0
 	for _,item in ipairs(all) do if item.ClassName=="Seat" then seats+=1 end end
-	assert(seats>=20)
+	assert(seats>=60)
+end)
+test("expanded lobby has 64 native seat surfaces and bounded static decoration",function()
+	local parts,seats,lights=0,0,0
+	for _,item in ipairs(all) do
+		if item.ClassName=="Part" or item.ClassName=="Seat" or item.ClassName=="SpawnLocation" then
+			parts+=1;assert(item.Anchored and item.CastShadow==false)
+		end
+		if item.ClassName=="Seat" then seats+=1;assert(item.CanCollide~=false and item.CanTouch~=false) end
+		if item.Name=="SeatCushion" then assert(not item.CanCollide and not item.CanTouch) end
+		if item.ClassName=="SurfaceLight" then lights+=1;assert(not item.Shadows) end
+		assert(item.ClassName~="ParticleEmitter")
+	end
+	assert(parts<700 and seats==64 and lights==6)
+	local area=0;for _,room in ipairs(Plan.Rooms) do area+=(room.x2-room.x1)*(room.z2-room.z1) end
+	assert(area==23296 and world.CloudpopWorkshop.BoutiqueCounter.RobuxShopPrompt)
 end)
 test("desktop fits horizontal main cards with the adjacent two-column bonus group",function()
 	local box=Layout.compute(1920,1080,false,2)
@@ -74,7 +89,7 @@ test("phone layouts preserve cell size, scrollable content and room for movement
 	for _,size in ipairs({{390,760},{844,340},{320,568},{1024,700}}) do
 		local box=Layout.compute(size[1],size[2],true,2)
 		assert(box.width<=size[1] and box.width>0 and box.height+box.footer<size[2])
-		assert(box.contentWidth==908 and box.height<=334)
+		assert(box.contentWidth==908 and box.height<=392)
 		if size[1]>size[2] then assert((size[1]-box.width)/2>=150) else assert(box.footer>=170) end
 	end
 end)
